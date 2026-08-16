@@ -1,21 +1,24 @@
+mod transactions;
+
 use anyhow::Result;
 use ed25519_dalek::{Signer, SigningKey, Verifier, VerifyingKey};
 use rand::{TryRng, rngs::SysRng};
 
-type PrivateKey = SigningKey;
-type PublicKey = VerifyingKey;
+pub type PrivateKey = SigningKey;
+pub type PublicKey = [u8; 32];
+pub type Address = [u8; 32];
 
-fn generate_key_pair() -> Result<(PrivateKey, PublicKey)> {
+fn generate_key_pair() -> Result<(PrivateKey, VerifyingKey)> {
     let mut rng = SysRng;
     let mut secret = [0u8; 32];
     rng.try_fill_bytes(&mut secret)?;
     let private_key = SigningKey::from_bytes(&secret);
-    let public_key : VerifyingKey = private_key.verifying_key();
+    let public_key = private_key.verifying_key();
 
     Ok((private_key, public_key))
 }
 
-fn generate_address(pub_key: &PublicKey) -> String {
+fn generate_address(pub_key: &VerifyingKey) -> String {
     blake3::hash(pub_key.as_bytes()).to_string()
 }
 
