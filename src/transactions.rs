@@ -1,8 +1,8 @@
-use ed25519_dalek::{Signature, Signer};
+use ed25519_dalek::{Signature, Signer, Verifier, VerifyingKey};
 
 use crate::{Address, PrivateKey, PublicKey};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct TransactionFields {
     pub version: u8,
     pub chain_id: u64,
@@ -67,5 +67,34 @@ impl Transaction {
             signature
         }
     }
+
+    pub fn verify(&self) -> bool {
+        let public_key = match VerifyingKey::from_bytes(&self.fields.public_key) {
+            Ok(key) => key,
+            // TODO: Log the error
+            Err(_) => return false
+        };
+        let hash = self.fields.hash();
+        public_key.verify(&hash, &self.signature).is_ok()
+    }
+
+    pub fn sender(&self) -> Address {
+        blake3::hash(&self.fields.public_key).as_bytes().to_owned()
+    }
 }
 
+#[cfg(test)]
+mod tests {
+    use crate::{generate_key_pair, transactions::{Transaction, TransactionFields}};
+
+    #[test]
+    pub fn sign_and_verify_transaction() {
+        // Generate Public/Private key
+        let (privk, pubk) = generate_key_pair().unwrap();
+        let mut trans_fields = TransactionFields::default();
+        trans_fields.public_key = pubk.as_bytes().to_owned();
+
+        let transaction = Transaction::new_signed(&privk, trans_fields);
+        assert!(transaction.verify())
+    }
+}
