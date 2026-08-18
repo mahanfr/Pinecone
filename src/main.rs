@@ -1,6 +1,7 @@
 mod transactions;
 mod blocks;
 mod hashing;
+mod validators;
 
 use anyhow::Result;
 use ed25519_dalek::{Signer, SigningKey, Verifier, VerifyingKey};
