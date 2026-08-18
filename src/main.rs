@@ -1,4 +1,6 @@
 mod transactions;
+mod blocks;
+mod hashing;
 
 use anyhow::Result;
 use ed25519_dalek::{Signer, SigningKey, Verifier, VerifyingKey};
@@ -7,6 +9,7 @@ use rand::{TryRng, rngs::SysRng};
 pub type PrivateKey = SigningKey;
 pub type PublicKey = [u8; 32];
 pub type Address = [u8; 32];
+pub type Hash = [u8; 32];
 
 fn generate_key_pair() -> Result<(PrivateKey, VerifyingKey)> {
     let mut rng = SysRng;

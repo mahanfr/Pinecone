@@ -2,6 +2,21 @@ use ed25519_dalek::{Signature, Signer, Verifier, VerifyingKey};
 
 use crate::{Address, PrivateKey, PublicKey};
 
+// [ ] Canonical serialization — exact protocol-level encoding.
+// [X] chain_id / replay protection.
+// [ ] Integer overflow rules.
+// [ ] Maximum transaction size.
+// [ ] Maximum data size.
+// [ ] Fee semantics.
+// [ ] Nonce semantics, including rejected/expired transactions.
+// [ ] Signature validation rules.
+// [ ] Transaction ID definition.
+// [ ] Transaction malleability considerations.
+// [ ] Protocol versioning.
+// [ ] DoS limits on transaction processing.
+// [ ] Test vectors and cross-implementation compatibility.
+// [ ] Fuzz testing of transaction decoding.
+
 #[derive(Debug, Clone, Default)]
 pub struct TransactionFields {
     pub version: u8,
@@ -46,7 +61,7 @@ impl TransactionFields {
 
     pub fn hash(&self) -> [u8; 32] {
         let mut bytes = Vec::new();
-        bytes.extend_from_slice(b"PINECONE_TX_V1");
+        bytes.extend_from_slice(b"PINECONE_TX_FIELDS_V1");
         bytes.extend_from_slice(&self.encode());
         blake3::hash(&bytes).as_bytes().to_owned()
     }
@@ -76,6 +91,14 @@ impl Transaction {
         };
         let hash = self.fields.hash();
         public_key.verify(&hash, &self.signature).is_ok()
+    }
+
+    pub fn hash(&self) -> [u8; 32] {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"PINECONE_TX_V1");
+        bytes.extend_from_slice(&self.fields.hash());
+        bytes.extend_from_slice(&self.signature.to_bytes());
+        blake3::hash(&bytes).as_bytes().to_owned()
     }
 
     pub fn sender(&self) -> Address {
