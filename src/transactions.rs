@@ -1,6 +1,6 @@
 use ed25519_dalek::{Signature, Signer, Verifier, VerifyingKey};
 
-use crate::{Address, PrivateKey, PublicKey};
+use crate::{PineAddress, PinePublicKey};
 
 // [ ] Canonical serialization — exact protocol-level encoding.
 // [X] chain_id / replay protection.
@@ -22,8 +22,8 @@ pub struct TransactionFields {
     pub version: u8,
     pub chain_id: u64,
     pub nonce: u64,
-    pub public_key: PublicKey,
-    pub recipient: Option<Address>,
+    pub public_key: PinePublicKey,
+    pub recipient: Option<PineAddress>,
 
     pub value: u128,
     pub gas_limit: u64,
@@ -74,7 +74,7 @@ pub struct Transaction {
 }
 
 impl Transaction {
-    pub fn new_signed(sec_key: &PrivateKey, fields: TransactionFields) -> Self {
+    pub fn new_signed(sec_key: &ed25519_dalek::SigningKey, fields: TransactionFields) -> Self {
         let hash = fields.hash();
         let signature = sec_key.sign(&hash);
         Self {
@@ -101,14 +101,14 @@ impl Transaction {
         blake3::hash(&bytes).as_bytes().to_owned()
     }
 
-    pub fn sender(&self) -> Address {
+    pub fn sender(&self) -> PineAddress {
         blake3::hash(&self.fields.public_key).as_bytes().to_owned()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{generate_key_pair, transactions::{Transaction, TransactionFields}};
+    use crate::{utils::generate_key_pair, transactions::{Transaction, TransactionFields}};
 
     #[test]
     pub fn sign_and_verify_transaction() {

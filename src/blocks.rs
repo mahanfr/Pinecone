@@ -1,6 +1,6 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::{Address, Hash, hashing::transactions_root, transactions::{Transaction}};
+use crate::{PineAddress, PineHash, hashing::transactions_root, transactions::{Transaction}};
 
 // [ ] Formal canonical serialization specification
 // [ ] Binary decoder
@@ -21,6 +21,7 @@ use crate::{Address, Hash, hashing::transactions_root, transactions::{Transactio
 // [ ] Fuzz testing
 // [ ] Cross-implementation test vectors
 
+const BLOCK_HEADER_DOMAIN: &[u8] = b"PINECONE_BLOCK_HEADER_V1";
 const BLOCK_DOMAIN: &[u8] = b"PINECONE_BLOCK_V1";
 
 fn current_timestamp() -> u128 {
@@ -39,9 +40,9 @@ impl Block {
     pub fn new(
         height: u64,
         round: u64,
-        previous_hash: Hash,
-        proposer: Address,
-        state_root: Hash,
+        previous_hash: PineHash,
+        proposer: PineAddress,
+        state_root: PineHash,
         transactions: Vec<Transaction>
     ) -> Self {
         let transactions_root = transactions_root(&transactions);
@@ -80,6 +81,17 @@ impl Block {
         true
     }
 
+    pub fn hash(&self) -> PineHash {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(BLOCK_DOMAIN);
+        bytes.extend_from_slice(&self.header.hash());
+        bytes.extend_from_slice(&(self.transactions.len() as u64).to_le_bytes());
+        for transaction in self.transactions.iter() {
+            bytes.extend_from_slice(&transaction.hash());
+        }
+        blake3::hash(&bytes).as_bytes().to_owned()
+    }
+
 }
 
 #[derive(Debug, Clone)]
@@ -87,11 +99,11 @@ pub struct BlockHeader {
     pub version: u8,
     pub height: u64,
     pub round : u64,
-    pub previous_hash: Hash,
+    pub previous_hash: PineHash,
     pub timestamp: u128,
-    pub proposer: Address,
-    pub transactions_root: Hash,
-    pub state_root: Hash
+    pub proposer: PineAddress,
+    pub transactions_root: PineHash,
+    pub state_root: PineHash
 }
 impl BlockHeader {
     pub fn encode(&self) -> Vec<u8> {
@@ -110,11 +122,11 @@ impl BlockHeader {
         bytes
     }
 
-    pub fn hash(&self) -> Hash {
+    pub fn hash(&self) -> PineHash {
         let encoded = self.encode();
 
         let mut data = Vec::new();
-        data.extend_from_slice(BLOCK_DOMAIN);
+        data.extend_from_slice(BLOCK_HEADER_DOMAIN);
         data.extend_from_slice(&encoded);
 
         blake3::hash(&data).as_bytes().to_owned()
@@ -125,7 +137,7 @@ pub fn genesis() -> Block {
     let transactions = Vec::new();
 
     Block {
-        header: BlockHeader { 
+        header: BlockHeader {
             version: 1,
             height: 1,
             round: 0,
