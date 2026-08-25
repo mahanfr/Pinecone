@@ -1,50 +1,80 @@
 use ed25519_dalek::{Signature, Signer, Verifier, VerifyingKey};
+use log::error;
 
-use crate::{PineAddress, PinePublicKey};
+use crate::types::{PineAddr, PinePK, PineTXSignature, addr_from_pk};
 
-// [ ] Canonical serialization — exact protocol-level encoding.
-// [X] chain_id / replay protection.
-// [ ] Integer overflow rules.
-// [ ] Maximum transaction size.
-// [ ] Maximum data size.
-// [ ] Fee semantics.
-// [ ] Nonce semantics, including rejected/expired transactions.
-// [ ] Signature validation rules.
-// [ ] Transaction ID definition.
-// [ ] Transaction malleability considerations.
-// [ ] Protocol versioning.
-// [ ] DoS limits on transaction processing.
-// [ ] Test vectors and cross-implementation compatibility.
-// [ ] Fuzz testing of transaction decoding.
+const TX_DOMAIN : &[u8] = b"PINECONE_TX";
+const TX_SIGNATURE_DOMAIN : &[u8] = b"PINECONE_TX_SIGNATURE";
+const TX_VERSION: u8 = 1;
 
-#[derive(Debug, Clone, Default)]
-pub struct TransactionFields {
+pub struct Transaction {
     pub version: u8,
     pub chain_id: u64,
-    pub nonce: u64,
-    pub public_key: PinePublicKey,
-    pub recipient: Option<PineAddress>,
+    pub sender_pk: PinePK,
+    pub recepient: Option<PineAddr>,
 
     pub value: u128,
     pub gas_limit: u64,
     pub max_fee: u128,
 
     pub data: Vec<u8>,
+
+    pub signature: PineTXSignature,
 }
 
-impl TransactionFields {
-    pub fn encode(&self) -> Vec<u8> {
+impl Transaction {
+    pub fn new(
+        sec_key: &ed25519_dalek::SigningKey,
+        chain_id: u64,
+        sender_pk: [u8; 32],
+        recepient: Option<PineAddr>,
+        value: u128,
+        data: Vec<u8>) -> Self {
+        let mut unsigned = Self {
+            version: TX_VERSION,
+            chain_id,
+            sender_pk,
+            recepient,
+            value,
+            gas_limit: 0,
+            max_fee: 0,
+            data,
+            signature: [0u8;64]
+        };
+        let hash = unsigned.hash_unsigned();
+        let signature = sec_key.sign(&hash);
+        unsigned.signature = signature.to_bytes();
+        unsigned
+    }
+
+    pub fn verify(&self) -> bool {
+        if self.signature.is_empty() {
+            error!("Empty Signature: The transaction has not been signed");
+            return false;
+        }
+        let public_key = match VerifyingKey::from_bytes(&self.sender_pk) {
+            Ok(key) => key,
+            Err(_) => {
+                error!("Invalid Sender Publick Key");
+                return false
+            }
+        };
+        let hash = self.hash_unsigned();
+        public_key.verify(&hash, &Signature::from_bytes(&self.signature)).is_ok()
+    }
+
+    fn encode_unsigned(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
         bytes.push(self.version);
         bytes.extend_from_slice(&self.chain_id.to_le_bytes());
-        bytes.extend_from_slice(&self.nonce.to_le_bytes());
-        bytes.extend_from_slice(&self.public_key);
+        bytes.extend_from_slice(&self.sender_pk);
 
-        match self.recipient {
+        // encoding Option
+        match self.recepient {
             Some(addr) => {
                 bytes.push(1u8);
                 bytes.extend_from_slice(&addr);
-            }
+            },
             None => {
                 bytes.push(0u8);
             }
@@ -59,65 +89,37 @@ impl TransactionFields {
         bytes
     }
 
-    pub fn hash(&self) -> [u8; 32] {
+    fn hash_unsigned(&self) -> [u8;32] {
         let mut bytes = Vec::new();
-        bytes.extend_from_slice(b"PINECONE_TX_FIELDS_V1");
-        bytes.extend_from_slice(&self.encode());
+        bytes.extend_from_slice(TX_SIGNATURE_DOMAIN);
+        bytes.extend_from_slice(&self.encode_unsigned());
         blake3::hash(&bytes).as_bytes().to_owned()
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct Transaction {
-    pub fields: TransactionFields,
-    pub signature: Signature,
-}
-
-impl Transaction {
-    pub fn new_signed(sec_key: &ed25519_dalek::SigningKey, fields: TransactionFields) -> Self {
-        let hash = fields.hash();
-        let signature = sec_key.sign(&hash);
-        Self {
-            fields,
-            signature
-        }
-    }
-
-    pub fn verify(&self) -> bool {
-        let public_key = match VerifyingKey::from_bytes(&self.fields.public_key) {
-            Ok(key) => key,
-            // TODO: Log the error
-            Err(_) => return false
-        };
-        let hash = self.fields.hash();
-        public_key.verify(&hash, &self.signature).is_ok()
     }
 
     pub fn hash(&self) -> [u8; 32] {
         let mut bytes = Vec::new();
-        bytes.extend_from_slice(b"PINECONE_TX_V1");
-        bytes.extend_from_slice(&self.fields.hash());
-        bytes.extend_from_slice(&self.signature.to_bytes());
+        bytes.extend_from_slice(TX_DOMAIN);
+        bytes.extend_from_slice(&self.encode_unsigned());
+        bytes.extend_from_slice(&self.signature);
         blake3::hash(&bytes).as_bytes().to_owned()
     }
 
-    pub fn sender(&self) -> PineAddress {
-        blake3::hash(&self.fields.public_key).as_bytes().to_owned()
+    pub fn sender(&self) -> [u8;32] {
+        addr_from_pk(&self.sender_pk)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{utils::generate_key_pair, transactions::{Transaction, TransactionFields}};
+    use crate::{keygen::generate_key_pair, transactions::Transaction};
 
     #[test]
     pub fn sign_and_verify_transaction() {
         // Generate Public/Private key
-        let (privk, pubk) = generate_key_pair().unwrap();
-        let mut trans_fields = TransactionFields::default();
-        trans_fields.public_key = pubk.as_bytes().to_owned();
+        let (privk, pubk) = generate_key_pair();
+        let sender_pk = pubk.as_bytes().to_owned();
 
-        let transaction = Transaction::new_signed(&privk, trans_fields);
+        let transaction = Transaction::new(&privk, 0, sender_pk, None, 0, vec![]);
         assert!(transaction.verify())
     }
 }

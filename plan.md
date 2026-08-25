@@ -1,9 +1,9 @@
 [X] Cryptographic primitives and identities
 [X] Transactions
-[X] Blocks and block headers
-[X] Hashing / Merkle commitments
-[X] Transaction signing and verification
-[x] Genesis block
+[ ] Blocks and block headers
+[ ] Hashing / Merkle commitments
+[ ] Transaction signing and verification
+[ ] Genesis block
 [ ] State model
 [ ] Virtual machine / smart contracts
 [ ] Consensus
