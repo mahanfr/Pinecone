@@ -1,6 +1,6 @@
 [X] Cryptographic primitives and identities
 [X] Transactions
-[ ] Blocks and block headers
+[X] Blocks and block headers
 [ ] Hashing / Merkle commitments
 [ ] Transaction signing and verification
 [ ] Genesis block
