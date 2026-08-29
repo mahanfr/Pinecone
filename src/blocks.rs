@@ -1,6 +1,6 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use log::trace;
+use log::warn;
 
 use crate::{transactions::{Transaction, transactions_root}, types::{BlockPos, PineAddr, PineHash}};
 
@@ -42,20 +42,20 @@ impl Block {
 
     pub fn validate_basic(&self, parent: &BlockHeader) -> bool {
         if self.header.version != 1 {
-            trace!("header is on unsupported version");
+            warn!("header is on unsupported version");
             return false;
         }
         if self.header.position.height != parent.position.height + 1 {
-            trace!("parent is at the same height or higher than the child");
+            warn!("parent is at the same height or higher than the child");
             return false;
         }
         if self.header.previous_hash != parent.hash() {
-            trace!("parent hash dose not match the blocks pervious hash");
+            warn!("parent hash dose not match the blocks pervious hash");
             return false;
         }
         let expexted_root = transactions_root(&self.transactions);
         if self.header.transactions_root != expexted_root {
-            trace!("the block Tx root dose not match the expected root");
+            warn!("the block Tx root dose not match the expected root");
             return false;
         }
         true
@@ -67,6 +67,7 @@ impl Block {
 }
 
 #[derive(Debug, Clone)]
+// TODO: Add gas_limit/gad_used and base_fee_per_gas to the block
 pub struct BlockHeader {
     pub version: u8,
     pub position: BlockPos,
@@ -75,6 +76,7 @@ pub struct BlockHeader {
     pub proposer: PineAddr,
     pub transactions_root: PineHash,
     pub state_root: PineHash,
+    // pub previous_rando // useed for smart contract random opcode
 }
 
 impl BlockHeader {

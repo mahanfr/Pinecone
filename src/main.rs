@@ -6,6 +6,7 @@ mod transactions;
 mod types;
 mod keygen;
 mod blocks;
+mod verkletrie;
 
 pub fn simulate() {
     debug!("Generating pk/sk");
@@ -31,6 +32,6 @@ pub fn simulate() {
 }
 
 fn main() {
-    env_logger::init();
+    env_logger::builder().filter_level(log::LevelFilter::Trace).init();
     simulate();
 }

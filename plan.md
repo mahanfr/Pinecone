@@ -1,7 +1,8 @@
 [X] Cryptographic primitives and identities
 [X] Transactions
 [X] Blocks and block headers
-[ ] Hashing / Merkle commitments
+[X] Hashing / Merkle commitments
+[X] Basic VerkleTrie implementation
 [ ] Transaction signing and verification
 [ ] Genesis block
 [ ] State model
