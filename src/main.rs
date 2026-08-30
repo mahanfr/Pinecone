@@ -7,6 +7,7 @@ mod types;
 mod keygen;
 mod blocks;
 mod verkletrie;
+mod kzg;
 
 pub fn simulate() {
     debug!("Generating pk/sk");

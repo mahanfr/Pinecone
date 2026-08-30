@@ -21,6 +21,7 @@ enum VerkleNode<T> {
     Leaf { path: Vec<u8>, value: T},
     Branch { children: HashMap<u8, Box<VerkleNode<T>>>, value: Option<T> },
 }
+    // pub previous_rando // useed for smart contract random opcode
 
 impl<T: Clone> VerkleNode<T> {
     pub fn new() -> Self {
