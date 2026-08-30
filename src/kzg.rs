@@ -4,7 +4,7 @@ use ark_ff::{One, PrimeField, UniformRand, Zero};
 use ark_poly::{DenseUVPolynomial, Polynomial, univariate::{DenseOrSparsePolynomial, DensePolynomial}};
 use ark_std::test_rng;
 
-struct KZG {
+pub struct KZG {
     pub tau: Fr,
     pub g1: G1Projective,
     pub g2: G2Projective,
