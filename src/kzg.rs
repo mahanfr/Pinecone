@@ -1,5 +1,5 @@
-use ark_bls12_381::{Bls12_381, Fr, G1Projective, G2Projective};
-use ark_ec::pairing::Pairing;
+use ark_bls12_381::{Bls12_381, Fr, G1Affine, G1Projective, G2Projective};
+use ark_ec::{CurveGroup, VariableBaseMSM, pairing::Pairing};
 use ark_ff::{One, PrimeField, UniformRand, Zero};
 use ark_poly::{DenseUVPolynomial, Polynomial, univariate::{DenseOrSparsePolynomial, DensePolynomial}};
 use ark_serialize::CanonicalSerialize;
@@ -9,8 +9,7 @@ pub struct KZG {
     pub tau: Fr,
     pub g1: G1Projective,
     pub g2: G2Projective,
-    pub powers_g1: Vec<G1Projective>,
-    pub powers_g2: Vec<G2Projective>,
+    pub powers_g1: Vec<G1Affine>,
 }
 impl KZG {
     pub fn new(max_degree: usize) -> Self {
@@ -21,28 +20,25 @@ impl KZG {
         let g2 = G2Projective::rand(&mut rng);
 
         let mut powers_g1 = Vec::with_capacity(max_degree + 1);
-        let mut powers_g2 = Vec::with_capacity(max_degree + 1);
         let mut tau_pow = Fr::one();
 
         for _ in 0..=max_degree {
-            powers_g1.push(g1 * tau_pow);
-            powers_g2.push(g2 * tau_pow);
+            powers_g1.push((g1 * tau_pow).into_affine());
             tau_pow *= tau;
         }
 
-        Self { tau, g1, g2, powers_g1, powers_g2 }
+        Self { tau, g1, g2, powers_g1 }
     }
 
     // C = f(s) * G1
     pub fn commit(&self, poly: &DensePolynomial<Fr>) -> G1Projective {
-        assert!( poly.degree() <= self.powers_g1.len() - 1,
+        let n = poly.coeffs().len();
+        assert!( n <= self.powers_g1.len(),
             "polynomial exceeds KZG setup degree"
         );
-        let mut commitment = G1Projective::zero();
-        for (i, coeff) in poly.coeffs().iter().enumerate() {
-            commitment += self.powers_g1[i] * coeff;
-        }
-        commitment
+        let bases = &self.powers_g1[..n];
+        let scalars = poly.coeffs();
+        G1Projective::msm_unchecked(bases, scalars)
     }
 
     pub fn open(&self, poly: &DensePolynomial<Fr>, z:Fr)
