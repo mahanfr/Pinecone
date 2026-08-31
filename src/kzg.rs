@@ -2,6 +2,7 @@ use ark_bls12_381::{Bls12_381, Fr, G1Projective, G2Projective};
 use ark_ec::pairing::Pairing;
 use ark_ff::{One, PrimeField, UniformRand, Zero};
 use ark_poly::{DenseUVPolynomial, Polynomial, univariate::{DenseOrSparsePolynomial, DensePolynomial}};
+use ark_serialize::CanonicalSerialize;
 use ark_std::test_rng;
 
 pub struct KZG {
@@ -19,8 +20,8 @@ impl KZG {
         let g1 = G1Projective::rand(&mut rng);
         let g2 = G2Projective::rand(&mut rng);
 
-        let mut powers_g1 = Vec::with_capacity(max_degree);
-        let mut powers_g2 = Vec::with_capacity(max_degree);
+        let mut powers_g1 = Vec::with_capacity(max_degree + 1);
+        let mut powers_g2 = Vec::with_capacity(max_degree + 1);
         let mut tau_pow = Fr::one();
 
         for _ in 0..=max_degree {
@@ -34,13 +35,31 @@ impl KZG {
 
     // C = f(s) * G1
     pub fn commit(&self, poly: &DensePolynomial<Fr>) -> G1Projective {
+        assert!( poly.degree() <= self.powers_g1.len() - 1,
+            "polynomial exceeds KZG setup degree"
+        );
         let mut commitment = G1Projective::zero();
         for (i, coeff) in poly.coeffs().iter().enumerate() {
-            if i < self.powers_g1.len() {
-                commitment += self.powers_g1[i] * coeff;
-            }
+            commitment += self.powers_g1[i] * coeff;
         }
         commitment
+    }
+
+    pub fn open(&self, poly: &DensePolynomial<Fr>, z:Fr)
+        -> (Fr, G1Projective) {
+        let y = poly.evaluate(&z);
+        let numerator = poly - &DensePolynomial::from_coefficients_vec(vec![y]);
+        let divisor = DensePolynomial::from_coefficients_vec(vec![-z, Fr::one()]);
+
+        let numerator_sparse = DenseOrSparsePolynomial::from(&numerator);
+        let divisor_sparse   = DenseOrSparsePolynomial::from(&divisor);
+
+        let (quotient, remainder) = numerator_sparse.divide_with_q_and_r(&divisor_sparse)
+            .expect("KZG polynomial division failed");
+
+        assert!(remainder.is_zero(), "f(X) - f(z) is not divisible by X-z");
+        let proof = self.commit(&quotient);
+        (y, proof)
     }
 
     // q(X) = f(X) - y / X - z where y = f(z)
@@ -65,16 +84,21 @@ impl KZG {
     }
 
     // e(C-yG1, G2) == e(π, tau * G2 - z * G2)
-    pub fn verify(&self, commitment: G1Projective, index: u8, y: Fr, proof: G1Projective) -> bool {
-        let index_fr = Fr::from(index);
+    pub fn verify(&self, commitment: G1Projective, z: Fr, y: Fr, proof: G1Projective) -> bool {
         let lhs = Bls12_381::pairing(commitment - self.g1 * y, self.g2);
-        let rhs = Bls12_381::pairing(proof, self.g2 * self.tau - self.g2 * index_fr);
+        let rhs = Bls12_381::pairing(proof, self.g2 * (self.tau - z));
         lhs == rhs
     }
 
     // TODO: Real Verkle uses Pedersen hashing to map child commitments to field
     pub fn hash_to_scalar(data: &[u8]) -> Fr {
-        let hash = blake3::hash(data).as_bytes().to_owned();
-        Fr::from_le_bytes_mod_order(&hash)
+        let digset = blake3::hash(data);
+        Fr::from_le_bytes_mod_order(digset.as_bytes())
+    }
+
+    pub fn hash_g1_to_scalar(point: &G1Projective) -> Fr {
+        let mut bytes = Vec::new();
+        point.serialize_compressed(&mut bytes).expect("G1 serialization failed");
+        Self::hash_to_scalar(&bytes)
     }
 }
