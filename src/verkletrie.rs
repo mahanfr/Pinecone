@@ -103,9 +103,7 @@ impl<T: Clone + ToBytes> SparseVerkleTrie<T> {
 
 struct VerkleNodeBranch<T: ToBytes + Clone> {
     children: Vec<Option<Box<VerkleNode<T>>>>,
-    occupied: Vec<u8>,
     commitment: G1Projective,
-    commitment_scalar: Fr,
     dirty: bool,
 }
 
@@ -113,9 +111,7 @@ impl<T: ToBytes + Clone> VerkleNodeBranch<T> {
     pub fn new_empty() -> Self {
         Self {
             children: empty_children(),
-            occupied: Vec::new(),
             commitment: G1Projective::zero(),
-            commitment_scalar: Fr::zero(),
             dirty: false,
         }
     }
@@ -124,7 +120,6 @@ impl<T: ToBytes + Clone> VerkleNodeBranch<T> {
 struct VerkleNodeLeaf<T: ToBytes + Clone> {
     value: T,
     commitment: G1Projective,
-    commitment_scalar: Fr,
 }
 
 enum VerkleNode<T: ToBytes + Clone> {
@@ -141,10 +136,8 @@ impl<T: Clone + ToBytes> VerkleNode<T> {
     pub fn insert(&mut self, key: &[u8], depth: usize, value: T) {
         if depth == KEY_LEN {
             let commitment = leaf_commitment(key, &value.to_bytes());
-            let commitment_scalar = KZG::hash_g1_to_scalar(&commitment);
             *self = VerkleNode::Leaf(VerkleNodeLeaf {
                 commitment,
-                commitment_scalar,
                 value,
             });
             return;
@@ -161,7 +154,6 @@ impl<T: Clone + ToBytes> VerkleNode<T> {
                 branch.dirty = true;
                 let index = key[depth] as usize;
                 if branch.children[index].is_none() {
-                    branch.occupied.push(index as u8);
                     branch.children[index] = Some(Box::new(VerkleNode::Empty));
                 }
                 branch.children[index]
@@ -210,7 +202,6 @@ impl<T: Clone + ToBytes> VerkleNode<T> {
                 branch.dirty = true;
                 if child.is_empty() {
                     branch.children[index] = None;
-                    branch.occupied.retain(|&i| i != index as u8);
                 }
                 true
             }
@@ -228,7 +219,7 @@ impl<T: Clone + ToBytes> VerkleNode<T> {
 
     fn is_empty_branch(&self) -> bool {
         match self {
-            VerkleNode::Branch(branch) => branch.occupied.is_empty(),
+            VerkleNode::Branch(branch) => branch.children.iter().all(|x| x.is_none()),
             _ => false,
         }
     }
@@ -251,7 +242,6 @@ impl<T: Clone + ToBytes> VerkleNode<T> {
                 let evals = Evaluations::from_vec_and_domain(coefficients, kzg.domain);
                 let poly = evals.interpolate();
                 let commitment = kzg.commit(&poly);
-                branch.commitment_scalar = KZG::hash_g1_to_scalar(&commitment);
                 branch.commitment = commitment;
                 branch.dirty = false;
                 commitment
@@ -275,24 +265,18 @@ impl<T: Clone + ToBytes> VerkleNode<T> {
                     levels: Vec::new(),
                 })
             }
-            Self::Branch(vnb) => {
+            Self::Branch(branch) => {
                 let index = key[depth] as usize;
-                let child_commitment = match vnb.children[index].as_deref_mut() {
+                let child_commitment = match branch.children[index].as_deref_mut() {
                     Some(child) => child.commit(kzg),
                     None => G1Projective::zero(),
                 };
                 let mut coefficients = vec![Fr::zero(); ARITY];
                 for i in 0..ARITY {
-                    if let Some(child) = vnb.children[i].as_deref_mut() {
+                    if let Some(child) = branch.children[i].as_deref_mut() {
                         let commitment = child.commit(kzg);
                         coefficients[i] = KZG::hash_g1_to_scalar(&commitment);
                     }
-                    // let commitment = match vnb.children[i].as_deref_mut() {
-                    //     Some(child) => child.commit(kzg),
-                    //     None => G1Projective::zero(),
-                    // };
-
-                    // coefficients[i] = KZG::hash_g1_to_scalar(&commitment);
                 }
                 let evals = Evaluations::from_vec_and_domain(coefficients, kzg.domain);
                 let poly = evals.interpolate();
@@ -305,7 +289,7 @@ impl<T: Clone + ToBytes> VerkleNode<T> {
                     kzg_proof,
                 };
 
-                match vnb.children[index].as_deref_mut() {
+                match branch.children[index].as_deref_mut() {
                     Some(child) => {
                         let child_proof = child.prove(kzg, key, depth + 1)?;
                         let mut levels = Vec::with_capacity(child_proof.levels.len() + 1);
@@ -403,6 +387,16 @@ mod tests {
 
         assert_eq!(trie.get(&key(1)), Ok(Some(&100)));
         assert_eq!(trie.get(&key(2)), Ok(Some(&420)));
+    }
+
+    #[test]
+    fn delete_item() {
+        let mut trie = SparseVerkleTrie::new();
+        trie.insert(&key(1), 100).unwrap();
+        trie.insert(&key(2), 420).unwrap();
+        assert!(trie.delete(&key(1)).unwrap());
+        assert_eq!(trie.get(&key(2)), Ok(Some(&420)));
+        assert!(!trie.delete(&key(1)).unwrap());
     }
 
     #[test]
