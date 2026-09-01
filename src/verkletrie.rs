@@ -3,12 +3,12 @@ use std::fmt;
 use ark_bls12_381::{Fr, G1Projective};
 use ark_ec::PrimeGroup;
 use ark_ff::Zero;
-use ark_poly::{DenseUVPolynomial, univariate::DensePolynomial};
+use ark_poly::{EvaluationDomain, Evaluations};
 use ark_serialize::CanonicalSerialize;
 
 use crate::{kzg::KZG, utils::ToBytes};
 
-pub const KEY_LEN: usize = 32;
+const KEY_LEN: usize = 32;
 pub const ARITY: usize = 256;
 const VERKLE_LEAF_DOMAIN: &[u8] = b"VERKLE_LEAF_V1";
 
@@ -73,7 +73,7 @@ impl<T: Clone + ToBytes> SparseVerkleTrie<T> {
             if level.index != expected_index {
                 return false;
             }
-            let z = Fr::from(level.index as u64);
+            let z = self.kzg.domain.element(level.index as usize);
             if !self
                 .kzg
                 .verify(current_commitment, z, level.evaluation, level.kzg_proof)
@@ -241,29 +241,21 @@ impl<T: Clone + ToBytes> VerkleNode<T> {
                 if !branch.dirty {
                     return branch.commitment;
                 }
-                let mut entries = Vec::with_capacity(branch.occupied.len());
-                for &index in &branch.occupied {
-                    let child = branch.children[index as usize]
-                        .as_mut()
-                        .expect("occupied slot missing child");
-                    let _ = child.commit(kzg);
-                    let scalar = child.cached_commitment_scalar();
-                    entries.push((index as usize, scalar));
+                let mut coefficients = vec![Fr::zero(); ARITY];
+                for i in 0..ARITY {
+                    if let Some(child) = branch.children[i].as_deref_mut() {
+                        let child_commitment = child.commit(kzg);
+                        coefficients[i] = KZG::hash_g1_to_scalar(&child_commitment);
+                    }
                 }
-                let commitment = kzg.commit_sparse(&entries);
+                let evals = Evaluations::from_vec_and_domain(coefficients, kzg.domain);
+                let poly = evals.interpolate();
+                let commitment = kzg.commit(&poly);
                 branch.commitment_scalar = KZG::hash_g1_to_scalar(&commitment);
                 branch.commitment = commitment;
                 branch.dirty = false;
                 commitment
             }
-        }
-    }
-
-    fn cached_commitment_scalar(&self) -> Fr {
-        match self {
-            VerkleNode::Empty => Fr::zero(),
-            VerkleNode::Leaf(leaf) => leaf.commitment_scalar,
-            VerkleNode::Branch(branch) => branch.commitment_scalar,
         }
     }
 
@@ -291,15 +283,21 @@ impl<T: Clone + ToBytes> VerkleNode<T> {
                 };
                 let mut coefficients = vec![Fr::zero(); ARITY];
                 for i in 0..ARITY {
-                    let commitment = match vnb.children[i].as_deref_mut() {
-                        Some(child) => child.commit(kzg),
-                        None => G1Projective::zero(),
-                    };
+                    if let Some(child) = vnb.children[i].as_deref_mut() {
+                        let commitment = child.commit(kzg);
+                        coefficients[i] = KZG::hash_g1_to_scalar(&commitment);
+                    }
+                    // let commitment = match vnb.children[i].as_deref_mut() {
+                    //     Some(child) => child.commit(kzg),
+                    //     None => G1Projective::zero(),
+                    // };
 
-                    coefficients[i] = KZG::hash_g1_to_scalar(&commitment);
+                    // coefficients[i] = KZG::hash_g1_to_scalar(&commitment);
                 }
-                let poly = DensePolynomial::from_coefficients_vec(coefficients);
-                let (evaluation, kzg_proof) = kzg.open(&poly, Fr::from(index as u64));
+                let evals = Evaluations::from_vec_and_domain(coefficients, kzg.domain);
+                let poly = evals.interpolate();
+                let z = kzg.domain.element(index);
+                let (evaluation, kzg_proof) = kzg.open(&poly, z);
                 let level = VerkleProofLevel {
                     index: index as u8,
                     evaluation,
@@ -364,13 +362,6 @@ impl fmt::Display for TrieError {
 
 impl std::error::Error for TrieError {}
 
-fn extend_key(prefix: &[u8], byte: u8) -> Vec<u8> {
-    let mut result = Vec::with_capacity(prefix.len() + 1);
-    result.extend_from_slice(prefix);
-    result.push(byte);
-    result
-}
-
 fn ensure_key(key: &[u8]) -> Result<(), TrieError> {
     if key.len() != KEY_LEN {
         return Err(TrieError::InvalidKeyLength {
@@ -421,9 +412,18 @@ mod tests {
 
         let root1 = trie.root_bytes();
         trie.insert(&key(1), 200).unwrap();
-        assert!(root1.len() > 0);
         let root2 = trie.root_bytes();
         assert_ne!(root1, root2);
         assert_eq!(trie.get(&key(1)).unwrap(), Some(&200));
+    }
+
+    #[test]
+    fn proof_and_validate() {
+        let mut trie = SparseVerkleTrie::new();
+        trie.insert(&key(1), 100).unwrap();
+        trie.insert(&key(2), 200).unwrap();
+        let root = trie.root_commitment();
+        let proof = trie.prove(&key(1)).unwrap();
+        assert!(trie.verify_proof(root, &key(1), &proof));
     }
 }

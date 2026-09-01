@@ -2,17 +2,19 @@ use ark_bls12_381::{Bls12_381, Fr, G1Affine, G1Projective, G2Projective};
 use ark_ec::{CurveGroup, VariableBaseMSM, pairing::Pairing};
 use ark_ff::{One, PrimeField, UniformRand, Zero};
 use ark_poly::{
-    DenseUVPolynomial, Polynomial,
-    univariate::{DenseOrSparsePolynomial, DensePolynomial},
+    DenseUVPolynomial, EvaluationDomain ,GeneralEvaluationDomain, Polynomial, univariate::{DenseOrSparsePolynomial, DensePolynomial}
 };
 use ark_serialize::CanonicalSerialize;
-use ark_std::{iterable::Iterable, test_rng};
+use ark_std::test_rng;
+
+use crate::verkletrie::ARITY;
 
 pub struct KZG {
     pub tau: Fr,
     pub g1: G1Projective,
     pub g2: G2Projective,
     pub powers_g1: Vec<G1Affine>,
+    pub domain: GeneralEvaluationDomain<Fr>,
 }
 impl KZG {
     pub fn new(max_degree: usize) -> Self {
@@ -30,11 +32,15 @@ impl KZG {
             tau_pow *= tau;
         }
 
+        let domain = GeneralEvaluationDomain::<Fr>::new(max_degree + 1)
+            .expect("domain size must support FFT");
+
         Self {
             tau,
             g1,
             g2,
             powers_g1,
+            domain
         }
     }
 
