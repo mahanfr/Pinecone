@@ -2,13 +2,17 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use log::warn;
 
-use crate::{transactions::{Transaction, transactions_root}, types::{BlockPos, PineAddr, PineHash}};
+use crate::{
+    transactions::{Transaction, transactions_root},
+    types::{BlockPos, PineAddr, PineHash},
+};
 
 const BLOCK_DOMAIN: &[u8] = b"PINECONE_BLOCK_V1";
 const BLOCK_VERSION: u8 = 1;
 
 fn current_timestamp() -> u128 {
-    SystemTime::now().duration_since(UNIX_EPOCH)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
         .expect("System clock is before Unix epoch")
         .as_nanos()
 }
@@ -25,7 +29,7 @@ impl Block {
         previous_hash: PineHash,
         proposer: PineAddr,
         state_root: PineHash,
-        transactions: Vec<Transaction>
+        transactions: Vec<Transaction>,
     ) -> Self {
         let header = BlockHeader {
             version: BLOCK_VERSION,
@@ -37,7 +41,10 @@ impl Block {
             state_root,
         };
 
-        Self { header, transactions }
+        Self {
+            header,
+            transactions,
+        }
     }
 
     pub fn validate_basic(&self, parent: &BlockHeader) -> bool {
@@ -104,5 +111,11 @@ impl BlockHeader {
 pub fn genesis() -> Block {
     let transactions = Vec::new();
 
-    Block::new(BlockPos::new(0, 0), [0u8;32], [0u8;32], [0u8;32], transactions)
+    Block::new(
+        BlockPos::new(0, 0),
+        [0u8; 32],
+        [0u8; 32],
+        [0u8; 32],
+        transactions,
+    )
 }

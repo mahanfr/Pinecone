@@ -14,16 +14,14 @@ const VERKLE_LEAF_DOMAIN: &[u8] = b"VERKLE_LEAF_V1";
 
 pub struct SparseVerkleTrie<T: ToBytes + Clone> {
     kzg: KZG,
-    root: VerkleNode<T>
+    root: VerkleNode<T>,
 }
 
 impl<T: Clone + ToBytes> SparseVerkleTrie<T> {
     pub fn new() -> Self {
         Self {
             kzg: KZG::new(ARITY - 1),
-            root: VerkleNode::Branch {
-                children: empty_children(),
-            }
+            root: VerkleNode::Branch(VerkleNodeBranch::new_empty()),
         }
     }
     pub fn insert(&mut self, key: &[u8], value: T) -> Result<(), TrieError> {
@@ -39,35 +37,47 @@ impl<T: Clone + ToBytes> SparseVerkleTrie<T> {
         ensure_key(key)?;
         Ok(self.root.delete(key, 0))
     }
-    fn root_commitment(&self) -> G1Projective {
-        self.root.commit(&self.kzg, 0, &[])
+    fn root_commitment(&mut self) -> G1Projective {
+        self.root.commit(&self.kzg)
     }
-    pub fn root_bytes(&self) -> [u8; 48] {
+    pub fn root_bytes(&mut self) -> [u8; 48] {
         let commitment = self.root_commitment();
         let mut out = [0u8; 48];
-        commitment.serialize_compressed(&mut out[..])
+        commitment
+            .serialize_compressed(&mut out[..])
             .expect("G1 serialize failed");
         out
     }
-    pub fn prove(&self, key: &[u8]) -> Result<VerkleProof, TrieError> {
+    pub fn prove(&mut self, key: &[u8]) -> Result<VerkleProof, TrieError> {
         ensure_key(key)?;
         self.root.prove(&self.kzg, key, 0)
     }
     pub fn verify_proof(&self, root: G1Projective, key: &[u8], proof: &VerkleProof) -> bool {
-        if key.len() != KEY_LEN { return false; }
-        if proof.key != key { return false; }
-        if proof.levels.is_empty() { return false; }
+        if key.len() != KEY_LEN {
+            return false;
+        }
+        if proof.key != key {
+            return false;
+        }
+        if proof.levels.is_empty() {
+            return false;
+        }
 
         let mut current_commitment = root;
 
         for (depth, level) in proof.levels.iter().enumerate() {
-            if depth >= KEY_LEN {return false;}
+            if depth >= KEY_LEN {
+                return false;
+            }
             let expected_index = key[depth];
             if level.index != expected_index {
                 return false;
             }
             let z = Fr::from(level.index as u64);
-            if !self.kzg.verify(current_commitment, z, level.evaluation, level.kzg_proof) {
+            if !self
+                .kzg
+                .verify(current_commitment, z, level.evaluation, level.kzg_proof)
+            {
                 return false;
             }
             let expected_scalar = KZG::hash_g1_to_scalar(&level.child_commitment);
@@ -79,21 +89,48 @@ impl<T: Clone + ToBytes> SparseVerkleTrie<T> {
             }
             current_commitment = level.child_commitment;
         }
-        if proof.levels.len() != KEY_LEN { return false; }
+        if proof.levels.len() != KEY_LEN {
+            return false;
+        }
         let value = match &proof.value {
             Some(value) => value,
             None => return false,
         };
         let leaf_commitment = leaf_commitment(key, value);
-        if current_commitment != leaf_commitment { return false; }
-        true
+        current_commitment == leaf_commitment
     }
+}
+
+struct VerkleNodeBranch<T: ToBytes + Clone> {
+    children: Vec<Option<Box<VerkleNode<T>>>>,
+    occupied: Vec<u8>,
+    commitment: G1Projective,
+    commitment_scalar: Fr,
+    dirty: bool,
+}
+
+impl<T: ToBytes + Clone> VerkleNodeBranch<T> {
+    pub fn new_empty() -> Self {
+        Self {
+            children: empty_children(),
+            occupied: Vec::new(),
+            commitment: G1Projective::zero(),
+            commitment_scalar: Fr::zero(),
+            dirty: false,
+        }
+    }
+}
+
+struct VerkleNodeLeaf<T: ToBytes + Clone> {
+    value: T,
+    commitment: G1Projective,
+    commitment_scalar: Fr,
 }
 
 enum VerkleNode<T: ToBytes + Clone> {
     Empty,
-    Leaf { value: T},
-    Branch { children: Vec<Option<Box<VerkleNode<T>>>> },
+    Leaf(VerkleNodeLeaf<T>),
+    Branch(VerkleNodeBranch<T>),
 }
 
 impl<T: Clone + ToBytes> VerkleNode<T> {
@@ -103,23 +140,34 @@ impl<T: Clone + ToBytes> VerkleNode<T> {
 
     pub fn insert(&mut self, key: &[u8], depth: usize, value: T) {
         if depth == KEY_LEN {
-            *self = VerkleNode::Leaf { value };
+            let commitment = leaf_commitment(key, &value.to_bytes());
+            let commitment_scalar = KZG::hash_g1_to_scalar(&commitment);
+            *self = VerkleNode::Leaf(VerkleNodeLeaf {
+                commitment,
+                commitment_scalar,
+                value,
+            });
             return;
         }
         match self {
             Self::Empty => {
-                *self = Self::Branch { children: empty_children() };
+                *self = Self::Branch(VerkleNodeBranch::new_empty());
                 self.insert(key, depth, value);
-            },
-            Self::Leaf { .. } => {
+            }
+            Self::Leaf(_) => {
                 panic!("invalid trie structure: leaf before depth 32");
-            },
-            Self::Branch { children } => {
+            }
+            Self::Branch(branch) => {
+                branch.dirty = true;
                 let index = key[depth] as usize;
-                let child = children[index].get_or_insert_with(|| {
-                    Box::new(VerkleNode::Empty)
-                });
-                child.insert(&key, depth + 1, value);
+                if branch.children[index].is_none() {
+                    branch.occupied.push(index as u8);
+                    branch.children[index] = Some(Box::new(VerkleNode::Empty));
+                }
+                branch.children[index]
+                    .as_mut()
+                    .unwrap()
+                    .insert(key, depth + 1, value);
             }
         }
     }
@@ -127,41 +175,44 @@ impl<T: Clone + ToBytes> VerkleNode<T> {
     pub fn get(&self, key: &[u8], depth: usize) -> Option<&T> {
         if depth == KEY_LEN {
             return match self {
-                Self::Leaf { value } => Some(value),
+                Self::Leaf(leaf) => Some(&leaf.value),
                 _ => None,
             };
         }
         match self {
             Self::Empty => None,
-            Self::Leaf { .. } => None,
-            Self::Branch { children } => {
-                children[key[depth] as usize].as_ref()
-                    .and_then(|child| child.get(key, depth + 1))
-            }
+            Self::Leaf(_) => None,
+            Self::Branch(branch) => branch.children[key[depth] as usize]
+                .as_deref()
+                .and_then(|child| child.get(key, depth + 1)),
         }
     }
 
     pub fn delete(&mut self, key: &[u8], depth: usize) -> bool {
         if depth == KEY_LEN {
-            if matches!(self, VerkleNode::Leaf { .. }) {
+            if matches!(self, VerkleNode::Leaf(_)) {
                 *self = VerkleNode::Empty;
                 return true;
             }
             return false;
         }
         let deleted = match self {
-            VerkleNode::Branch { children } => {
+            VerkleNode::Branch(branch) => {
                 let index = key[depth] as usize;
-                match children[index].as_mut() {
-                    Some(child) => {
-                        let deleted = child.delete(key, depth + 1);
-                        if deleted && child.is_empty() {
-                            children[index] = None;
-                        }
-                        deleted
-                    }
-                    None => false,
+                let child = match branch.children[index].as_mut() {
+                    Some(child) => child,
+                    None => return false,
+                };
+                let deleted = child.delete(key, depth + 1);
+                if !deleted {
+                    return false;
                 }
+                branch.dirty = true;
+                if child.is_empty() {
+                    branch.children[index] = None;
+                    branch.occupied.retain(|&i| i != index as u8);
+                }
+                true
             }
             _ => false,
         };
@@ -177,75 +228,72 @@ impl<T: Clone + ToBytes> VerkleNode<T> {
 
     fn is_empty_branch(&self) -> bool {
         match self {
-            VerkleNode::Branch { children } => {
-                children.iter().all(|c| c.is_none())
-            }
-            _ => false
+            VerkleNode::Branch(branch) => branch.occupied.is_empty(),
+            _ => false,
         }
     }
 
-    pub fn commit(&self, kzg: &KZG, depth: usize, key_prefix: &[u8]) -> G1Projective {
+    pub fn commit(&mut self, kzg: &KZG) -> G1Projective {
         match self {
             Self::Empty => G1Projective::zero(),
-            Self::Leaf { value } => {
-                assert_eq!(depth, KEY_LEN, "leaf reached before depth 32");
-                leaf_commitment(key_prefix, &value.to_bytes())
-            }
-            Self::Branch { children } => {
-                let mut coefficients = vec![Fr::zero(); ARITY];
-
-                for (index, child) in children.iter().enumerate() {
-                    let child_commit = match child {
-                        Some(child) => child.commit(
-                            kzg,
-                            depth + 1,
-                            &extend_key(key_prefix, index as u8),
-                        ),
-                        None => G1Projective::zero(),
-                    };
-                    coefficients[index] = KZG::hash_g1_to_scalar(&child_commit);
+            Self::Leaf(leaf) => leaf.commitment,
+            Self::Branch(branch) => {
+                if !branch.dirty {
+                    return branch.commitment;
                 }
-
-                let poly = DensePolynomial::from_coefficients_vec(coefficients);
-                kzg.commit(&poly)
+                let mut entries = Vec::with_capacity(branch.occupied.len());
+                for &index in &branch.occupied {
+                    let child = branch.children[index as usize]
+                        .as_mut()
+                        .expect("occupied slot missing child");
+                    let _ = child.commit(kzg);
+                    let scalar = child.cached_commitment_scalar();
+                    entries.push((index as usize, scalar));
+                }
+                let commitment = kzg.commit_sparse(&entries);
+                branch.commitment_scalar = KZG::hash_g1_to_scalar(&commitment);
+                branch.commitment = commitment;
+                branch.dirty = false;
+                commitment
             }
         }
     }
 
-    fn prove(&self, kzg: &KZG, key: &[u8], depth: usize) -> Result<VerkleProof, TrieError> {
+    fn cached_commitment_scalar(&self) -> Fr {
         match self {
-            Self::Empty => {
-                Err(TrieError::InvalidKeyLength { expected: KEY_LEN, actual: key.len() })
-            }
-            Self::Leaf { value } => {
+            VerkleNode::Empty => Fr::zero(),
+            VerkleNode::Leaf(leaf) => leaf.commitment_scalar,
+            VerkleNode::Branch(branch) => branch.commitment_scalar,
+        }
+    }
+
+    fn prove(&mut self, kzg: &KZG, key: &[u8], depth: usize) -> Result<VerkleProof, TrieError> {
+        match self {
+            Self::Empty => Err(TrieError::InvalidKeyLength {
+                expected: KEY_LEN,
+                actual: key.len(),
+            }),
+            Self::Leaf(vnl) => {
                 if depth != KEY_LEN {
                     panic!("leaf encounterd before depth 32");
                 }
                 Ok(VerkleProof {
                     key: key.to_vec(),
-                    value: Some(value.to_bytes()),
-                    levels: Vec::new()
+                    value: Some(vnl.value.to_bytes()),
+                    levels: Vec::new(),
                 })
             }
-            Self::Branch { children } => {
+            Self::Branch(vnb) => {
                 let index = key[depth] as usize;
-                let child_commitment = match &children[index] {
-                    Some(child) => child.commit(
-                        kzg,
-                        depth + 1,
-                        &extend_key(&key[..depth], index as u8)
-                    ),
-                    None => G1Projective::zero()
+                let child_commitment = match vnb.children[index].as_deref_mut() {
+                    Some(child) => child.commit(kzg),
+                    None => G1Projective::zero(),
                 };
                 let mut coefficients = vec![Fr::zero(); ARITY];
                 for i in 0..ARITY {
-                    let commitment = match &children[i] {
-                        Some(child) => child.commit(
-                            kzg,
-                            depth + 1,
-                            &extend_key(&key[..depth], i as u8)
-                        ),
-                        None => G1Projective::zero()
+                    let commitment = match vnb.children[i].as_deref_mut() {
+                        Some(child) => child.commit(kzg),
+                        None => G1Projective::zero(),
                     };
 
                     coefficients[i] = KZG::hash_g1_to_scalar(&commitment);
@@ -256,10 +304,10 @@ impl<T: Clone + ToBytes> VerkleNode<T> {
                     index: index as u8,
                     evaluation,
                     child_commitment,
-                    kzg_proof
+                    kzg_proof,
                 };
 
-                match &children[index] {
+                match vnb.children[index].as_deref_mut() {
                     Some(child) => {
                         let child_proof = child.prove(kzg, key, depth + 1)?;
                         let mut levels = Vec::with_capacity(child_proof.levels.len() + 1);
@@ -271,18 +319,15 @@ impl<T: Clone + ToBytes> VerkleNode<T> {
                             levels,
                         })
                     }
-                    None => {
-                        Ok(VerkleProof {
-                            key: key.to_vec(),
-                            value: None,
-                            levels: vec![level],
-                        })
-                    }
+                    None => Ok(VerkleProof {
+                        key: key.to_vec(),
+                        value: None,
+                        levels: vec![level],
+                    }),
                 }
             }
         }
     }
-
 }
 
 pub struct VerkleProof {
@@ -298,13 +343,9 @@ pub struct VerkleProofLevel {
     pub kzg_proof: G1Projective,
 }
 
-
 #[derive(Debug, PartialEq)]
 pub enum TrieError {
-    InvalidKeyLength {
-        expected: usize,
-        actual: usize,
-    },
+    InvalidKeyLength { expected: usize, actual: usize },
 }
 
 impl fmt::Display for TrieError {
@@ -314,8 +355,7 @@ impl fmt::Display for TrieError {
                 write!(
                     f,
                     "invalid key length: expected {}, got {}",
-                    expected,
-                    actual
+                    expected, actual
                 )
             }
         }
@@ -333,7 +373,10 @@ fn extend_key(prefix: &[u8], byte: u8) -> Vec<u8> {
 
 fn ensure_key(key: &[u8]) -> Result<(), TrieError> {
     if key.len() != KEY_LEN {
-        return Err(TrieError::InvalidKeyLength { expected: KEY_LEN, actual: key.len() });
+        return Err(TrieError::InvalidKeyLength {
+            expected: KEY_LEN,
+            actual: key.len(),
+        });
     }
     Ok(())
 }
@@ -356,7 +399,7 @@ mod tests {
     use crate::verkletrie::SparseVerkleTrie;
 
     fn key(x: u8) -> [u8; 32] {
-        let mut k = [0u8;32];
+        let mut k = [0u8; 32];
         k[31] = x;
         k
     }
@@ -364,8 +407,8 @@ mod tests {
     #[test]
     fn insert_and_get() {
         let mut trie = SparseVerkleTrie::new();
-        trie.insert(&key(1),  100).unwrap();
-        trie.insert(&key(2),  420).unwrap();
+        trie.insert(&key(1), 100).unwrap();
+        trie.insert(&key(2), 420).unwrap();
 
         assert_eq!(trie.get(&key(1)), Ok(Some(&100)));
         assert_eq!(trie.get(&key(2)), Ok(Some(&420)));
@@ -378,6 +421,7 @@ mod tests {
 
         let root1 = trie.root_bytes();
         trie.insert(&key(1), 200).unwrap();
+        assert!(root1.len() > 0);
         let root2 = trie.root_bytes();
         assert_ne!(root1, root2);
         assert_eq!(trie.get(&key(1)).unwrap(), Some(&200));

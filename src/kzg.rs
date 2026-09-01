@@ -1,9 +1,12 @@
 use ark_bls12_381::{Bls12_381, Fr, G1Affine, G1Projective, G2Projective};
 use ark_ec::{CurveGroup, VariableBaseMSM, pairing::Pairing};
 use ark_ff::{One, PrimeField, UniformRand, Zero};
-use ark_poly::{DenseUVPolynomial, Polynomial, univariate::{DenseOrSparsePolynomial, DensePolynomial}};
+use ark_poly::{
+    DenseUVPolynomial, Polynomial,
+    univariate::{DenseOrSparsePolynomial, DensePolynomial},
+};
 use ark_serialize::CanonicalSerialize;
-use ark_std::test_rng;
+use ark_std::{iterable::Iterable, test_rng};
 
 pub struct KZG {
     pub tau: Fr,
@@ -27,30 +30,84 @@ impl KZG {
             tau_pow *= tau;
         }
 
-        Self { tau, g1, g2, powers_g1 }
+        Self {
+            tau,
+            g1,
+            g2,
+            powers_g1,
+        }
     }
 
     // C = f(s) * G1
     pub fn commit(&self, poly: &DensePolynomial<Fr>) -> G1Projective {
         let n = poly.coeffs().len();
-        assert!( n <= self.powers_g1.len(),
+        assert!(
+            n <= self.powers_g1.len(),
             "polynomial exceeds KZG setup degree"
         );
         let bases = &self.powers_g1[..n];
         let scalars = poly.coeffs();
         G1Projective::msm_unchecked(bases, scalars)
+        // self.commit_coefficients(poly.coeffs())
     }
 
-    pub fn open(&self, poly: &DensePolynomial<Fr>, z:Fr)
-        -> (Fr, G1Projective) {
+    pub fn commit_coefficients(&self, coefficients: &[Fr]) -> G1Projective {
+        assert!(
+            coefficients.len() <= self.powers_g1.len(),
+            "polynomial exceeds KZG setup degree"
+        );
+        let mut last = coefficients.len();
+        while last > 0 && coefficients[last - 1].is_zero() {
+            last -= 1;
+        }
+        if last == 0 {
+            return G1Projective::zero();
+        }
+        let bases = &self.powers_g1[..last];
+        let scalars = &coefficients[..last];
+        G1Projective::msm_unchecked(bases, scalars)
+    }
+
+    pub fn commit_sparse(&self, entries: &[(usize, Fr)]) -> G1Projective {
+        if entries.is_empty() {
+            return G1Projective::zero();
+        }
+        if entries.len() == 1 {
+            let (index, scalar) = entries[0];
+            if scalar.is_zero() {
+                return G1Projective::zero();
+            }
+            return self.powers_g1[index] * scalar;
+        }
+        let mut bases = Vec::with_capacity(entries.len());
+        let mut scalars = Vec::with_capacity(entries.len());
+        for &(index, scalar) in entries {
+            if scalar.is_zero() {
+                continue;
+            }
+            assert!(
+                index < self.powers_g1.len(),
+                "coefficients index exceeds KZG setup"
+            );
+            bases.push(self.powers_g1[index]);
+            scalars.push(scalar);
+        }
+        if scalars.is_empty() {
+            return G1Projective::zero();
+        }
+        G1Projective::msm_unchecked(&bases, &scalars)
+    }
+
+    pub fn open(&self, poly: &DensePolynomial<Fr>, z: Fr) -> (Fr, G1Projective) {
         let y = poly.evaluate(&z);
         let numerator = poly - &DensePolynomial::from_coefficients_vec(vec![y]);
         let divisor = DensePolynomial::from_coefficients_vec(vec![-z, Fr::one()]);
 
         let numerator_sparse = DenseOrSparsePolynomial::from(&numerator);
-        let divisor_sparse   = DenseOrSparsePolynomial::from(&divisor);
+        let divisor_sparse = DenseOrSparsePolynomial::from(&divisor);
 
-        let (quotient, remainder) = numerator_sparse.divide_with_q_and_r(&divisor_sparse)
+        let (quotient, remainder) = numerator_sparse
+            .divide_with_q_and_r(&divisor_sparse)
             .expect("KZG polynomial division failed");
 
         assert!(remainder.is_zero(), "f(X) - f(z) is not divisible by X-z");
@@ -72,7 +129,9 @@ impl KZG {
         let numerator_sparse = DenseOrSparsePolynomial::from(&numerator);
         let divisor_sparse = DenseOrSparsePolynomial::from(&divisor);
 
-        let (quotient, remainder) = numerator_sparse.divide_with_q_and_r(&divisor_sparse).expect("Division failed");
+        let (quotient, remainder) = numerator_sparse
+            .divide_with_q_and_r(&divisor_sparse)
+            .expect("Division failed");
         assert_eq!(remainder, DensePolynomial::zero());
 
         let proof = self.commit(&quotient);
@@ -94,7 +153,9 @@ impl KZG {
 
     pub fn hash_g1_to_scalar(point: &G1Projective) -> Fr {
         let mut bytes = Vec::new();
-        point.serialize_compressed(&mut bytes).expect("G1 serialization failed");
+        point
+            .serialize_compressed(&mut bytes)
+            .expect("G1 serialization failed");
         Self::hash_to_scalar(&bytes)
     }
 }

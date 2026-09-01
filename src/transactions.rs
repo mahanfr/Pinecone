@@ -4,11 +4,11 @@ use log::error;
 use crate::types::{PineAddr, PineHash, PinePK, PineTXSignature, addr_from_pk};
 
 const TX_VERSION: u8 = 1;
-const TX_DOMAIN           : &[u8] = b"PINECONE_TX";
-const TX_SIGNATURE_DOMAIN : &[u8] = b"PINECONE_TX_SIGNATURE";
+const TX_DOMAIN: &[u8] = b"PINECONE_TX";
+const TX_SIGNATURE_DOMAIN: &[u8] = b"PINECONE_TX_SIGNATURE";
 const TX_EMPTY_ROOT_DOMAIN: &[u8] = b"PINECONE_EMPTY_TX_ROOT";
-const TX_EMPTY_DOMAIN     : &[u8] = b"PINECONE_EMPTY_TX";
-const MERKLE_TREE_DOMAIN  : &[u8] = b"PINECONE_MT";
+const TX_EMPTY_DOMAIN: &[u8] = b"PINECONE_EMPTY_TX";
+const MERKLE_TREE_DOMAIN: &[u8] = b"PINECONE_MT";
 
 #[derive(Debug, Clone)]
 pub struct Transaction {
@@ -36,7 +36,8 @@ impl Transaction {
         sender_pk: [u8; 32],
         recepient: Option<PineAddr>,
         value: u128,
-        data: Vec<u8>) -> Self {
+        data: Vec<u8>,
+    ) -> Self {
         let mut unsigned = Self {
             version: TX_VERSION,
             chain_id,
@@ -47,7 +48,7 @@ impl Transaction {
             gas_limit: 0,
             max_fee: 0,
             data,
-            signature: [0u8;64]
+            signature: [0u8; 64],
         };
         let hash = unsigned.hash_unsigned();
         let signature = sec_key.sign(&hash);
@@ -64,11 +65,13 @@ impl Transaction {
             Ok(key) => key,
             Err(_) => {
                 error!("Invalid Sender Publick Key");
-                return false
+                return false;
             }
         };
         let hash = self.hash_unsigned();
-        public_key.verify(&hash, &Signature::from_bytes(&self.signature)).is_ok()
+        public_key
+            .verify(&hash, &Signature::from_bytes(&self.signature))
+            .is_ok()
     }
 
     fn encode_unsigned(&self) -> Vec<u8> {
@@ -83,7 +86,7 @@ impl Transaction {
             Some(addr) => {
                 bytes.push(1u8);
                 bytes.extend_from_slice(&addr);
-            },
+            }
             None => {
                 bytes.push(0u8);
             }
@@ -98,7 +101,7 @@ impl Transaction {
         bytes
     }
 
-    fn hash_unsigned(&self) -> [u8;32] {
+    fn hash_unsigned(&self) -> [u8; 32] {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(TX_SIGNATURE_DOMAIN);
         bytes.extend_from_slice(&self.encode_unsigned());
@@ -113,7 +116,7 @@ impl Transaction {
         blake3::hash(&bytes).as_bytes().to_owned()
     }
 
-    pub fn sender(&self) -> [u8;32] {
+    pub fn sender(&self) -> [u8; 32] {
         addr_from_pk(&self.sender_pk)
     }
 }
@@ -129,8 +132,11 @@ pub fn transactions_root(transactions: &[Transaction]) -> PineHash {
         for pair in level.chunks(2) {
             let left = &pair[0];
 
-            let right = if pair.len() == 2 { pair[1] }
-            else { blake3::hash(TX_EMPTY_DOMAIN).as_bytes().to_owned() };
+            let right = if pair.len() == 2 {
+                pair[1]
+            } else {
+                blake3::hash(TX_EMPTY_DOMAIN).as_bytes().to_owned()
+            };
 
             let mut data = Vec::new();
             data.extend_from_slice(MERKLE_TREE_DOMAIN);
