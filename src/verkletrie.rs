@@ -103,6 +103,7 @@ impl<T: Clone + ToBytes> SparseVerkleTrie<T> {
 
 struct VerkleNodeBranch<T: ToBytes + Clone> {
     children: Vec<Option<Box<VerkleNode<T>>>>,
+    occupied: Vec<u8>,
     commitment: G1Projective,
     dirty: bool,
 }
@@ -112,6 +113,7 @@ impl<T: ToBytes + Clone> VerkleNodeBranch<T> {
         Self {
             children: empty_children(),
             commitment: G1Projective::zero(),
+            occupied: Vec::new(),
             dirty: false,
         }
     }
@@ -154,6 +156,7 @@ impl<T: Clone + ToBytes> VerkleNode<T> {
                 branch.dirty = true;
                 let index = key[depth] as usize;
                 if branch.children[index].is_none() {
+                    branch.occupied.push(index as u8);
                     branch.children[index] = Some(Box::new(VerkleNode::Empty));
                 }
                 branch.children[index]
@@ -202,6 +205,7 @@ impl<T: Clone + ToBytes> VerkleNode<T> {
                 branch.dirty = true;
                 if child.is_empty() {
                     branch.children[index] = None;
+                    branch.occupied.retain(|&i| i != index as u8);
                 }
                 true
             }
@@ -219,7 +223,7 @@ impl<T: Clone + ToBytes> VerkleNode<T> {
 
     fn is_empty_branch(&self) -> bool {
         match self {
-            VerkleNode::Branch(branch) => branch.children.iter().all(|x| x.is_none()),
+            VerkleNode::Branch(branch) => branch.occupied.is_empty(),
             _ => false,
         }
     }
@@ -232,16 +236,23 @@ impl<T: Clone + ToBytes> VerkleNode<T> {
                 if !branch.dirty {
                     return branch.commitment;
                 }
-                let mut coefficients = vec![Fr::zero(); ARITY];
-                for i in 0..ARITY {
-                    if let Some(child) = branch.children[i].as_deref_mut() {
-                        let child_commitment = child.commit(kzg);
-                        coefficients[i] = KZG::hash_g1_to_scalar(&child_commitment);
-                    }
+                // let mut coefficients = vec![Fr::zero(); ARITY];
+                // for i in 0..ARITY {
+                //     if let Some(child) = branch.children[i].as_deref_mut() {
+                //         let child_commitment = child.commit(kzg);
+                //         coefficients[i] = KZG::hash_g1_to_scalar(&child_commitment);
+                //     }
+                // }
+                // let evals = Evaluations::from_vec_and_domain(coefficients, kzg.domain);
+                // let poly = evals.interpolate();
+                let mut entries = Vec::with_capacity(branch.occupied.len());
+                for &index in &branch.occupied {
+                    let child = branch.children[index as usize].as_mut().unwrap();
+                    let child_commitment = child.commit(kzg);
+                    entries.push((index as usize, KZG::hash_g1_to_scalar(&child_commitment)));
                 }
-                let evals = Evaluations::from_vec_and_domain(coefficients, kzg.domain);
-                let poly = evals.interpolate();
-                let commitment = kzg.commit(&poly);
+                // let commitment = kzg.commit(&poly);
+                let commitment = kzg.commit_sparse_lagrange(&entries);
                 branch.commitment = commitment;
                 branch.dirty = false;
                 commitment

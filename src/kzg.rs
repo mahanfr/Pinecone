@@ -1,13 +1,11 @@
 use ark_bls12_381::{Bls12_381, Fr, G1Affine, G1Projective, G2Projective};
 use ark_ec::{CurveGroup, VariableBaseMSM, pairing::Pairing};
-use ark_ff::{One, PrimeField, UniformRand, Zero};
+use ark_ff::{Field, One, PrimeField, UniformRand, Zero};
 use ark_poly::{
     DenseUVPolynomial, EvaluationDomain ,GeneralEvaluationDomain, Polynomial, univariate::{DenseOrSparsePolynomial, DensePolynomial}
 };
 use ark_serialize::CanonicalSerialize;
 use ark_std::test_rng;
-
-use crate::verkletrie::ARITY;
 
 pub struct KZG {
     pub tau: Fr,
@@ -15,6 +13,7 @@ pub struct KZG {
     pub g2: G2Projective,
     pub powers_g1: Vec<G1Affine>,
     pub domain: GeneralEvaluationDomain<Fr>,
+    pub powers_g1_lagrange: Vec<G1Affine>,
 }
 impl KZG {
     pub fn new(max_degree: usize) -> Self {
@@ -32,15 +31,27 @@ impl KZG {
             tau_pow *= tau;
         }
 
+        // TODO: in case of real tau use group element FFT
         let domain = GeneralEvaluationDomain::<Fr>::new(max_degree + 1)
             .expect("domain size must support FFT");
+        let n = domain.size();
+        let n_inv = Fr::from(n as u64).inverse().unwrap();
+        let vanishing_at_tau = domain.evaluate_vanishing_polynomial(tau);
+        let powers_g1_lagrange: Vec<G1Affine> = domain.elements()
+            .map(|omega_i| {
+                let denom = (tau - omega_i).inverse()
+                    .expect("tau collided with domain point");
+                let l_i = omega_i * n_inv * vanishing_at_tau * denom;
+                (g1 * l_i).into_affine()
+            }).collect();
 
         Self {
             tau,
             g1,
             g2,
             powers_g1,
-            domain
+            domain,
+            powers_g1_lagrange
         }
     }
 
@@ -54,27 +65,9 @@ impl KZG {
         let bases = &self.powers_g1[..n];
         let scalars = poly.coeffs();
         G1Projective::msm_unchecked(bases, scalars)
-        // self.commit_coefficients(poly.coeffs())
     }
 
-    pub fn commit_coefficients(&self, coefficients: &[Fr]) -> G1Projective {
-        assert!(
-            coefficients.len() <= self.powers_g1.len(),
-            "polynomial exceeds KZG setup degree"
-        );
-        let mut last = coefficients.len();
-        while last > 0 && coefficients[last - 1].is_zero() {
-            last -= 1;
-        }
-        if last == 0 {
-            return G1Projective::zero();
-        }
-        let bases = &self.powers_g1[..last];
-        let scalars = &coefficients[..last];
-        G1Projective::msm_unchecked(bases, scalars)
-    }
-
-    pub fn commit_sparse(&self, entries: &[(usize, Fr)]) -> G1Projective {
+    pub fn commit_sparse_lagrange(&self, entries: &[(usize, Fr)]) -> G1Projective {
         if entries.is_empty() {
             return G1Projective::zero();
         }
@@ -83,7 +76,7 @@ impl KZG {
             if scalar.is_zero() {
                 return G1Projective::zero();
             }
-            return self.powers_g1[index] * scalar;
+            return self.powers_g1_lagrange[index] * scalar;
         }
         let mut bases = Vec::with_capacity(entries.len());
         let mut scalars = Vec::with_capacity(entries.len());
@@ -92,10 +85,10 @@ impl KZG {
                 continue;
             }
             assert!(
-                index < self.powers_g1.len(),
+                index < self.powers_g1_lagrange.len(),
                 "coefficients index exceeds KZG setup"
             );
-            bases.push(self.powers_g1[index]);
+            bases.push(self.powers_g1_lagrange[index]);
             scalars.push(scalar);
         }
         if scalars.is_empty() {
