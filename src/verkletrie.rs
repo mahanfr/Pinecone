@@ -65,6 +65,7 @@ impl<T: Clone + ToBytes> SparseVerkleTrie<T> {
 
         let mut current_commitment = root;
 
+        let mut batch = Vec::with_capacity(proof.levels.len());
         for (depth, level) in proof.levels.iter().enumerate() {
             if depth >= KEY_LEN {
                 return false;
@@ -74,12 +75,13 @@ impl<T: Clone + ToBytes> SparseVerkleTrie<T> {
                 return false;
             }
             let z = self.kzg.domain.element(level.index as usize);
-            if !self
-                .kzg
-                .verify(current_commitment, z, level.evaluation, level.kzg_proof)
-            {
-                return false;
-            }
+            batch.push((current_commitment, z, level.evaluation, level.kzg_proof));
+            // if !self
+            //     .kzg
+            //     .verify(current_commitment, z, level.evaluation, level.kzg_proof)
+            // {
+            //     return false;
+            // }
             let expected_scalar = KZG::hash_g1_to_scalar(&level.child_commitment);
             if level.evaluation != expected_scalar {
                 return false;
@@ -88,6 +90,9 @@ impl<T: Clone + ToBytes> SparseVerkleTrie<T> {
                 return proof.value.is_none() && depth + 1 == proof.levels.len();
             }
             current_commitment = level.child_commitment;
+        }
+        if !self.kzg.verify_batch(&batch) {
+            return false;
         }
         if proof.levels.len() != KEY_LEN {
             return false;

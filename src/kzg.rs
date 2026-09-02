@@ -144,6 +144,37 @@ impl KZG {
         lhs == rhs
     }
 
+    pub fn verify_batch(&self, items: &[(G1Projective, Fr, Fr, G1Projective)]) -> bool {
+        if items.is_empty() { return true;}
+
+        let mut transcript = Vec::new();
+        for (c, z, y, pi) in items {
+            c.serialize_compressed(&mut transcript).unwrap();
+            z.serialize_compressed(&mut transcript).unwrap();
+            y.serialize_compressed(&mut transcript).unwrap();
+            pi.serialize_compressed(&mut transcript).unwrap();
+        }
+        let challenges: Vec<Fr> = (0..items.len())
+            .map(|i| {
+                let mut seed = transcript.clone();
+                seed.extend_from_slice(&(i as u64).to_le_bytes());
+                KZG::hash_to_scalar(&seed)
+            }).collect();
+        let mut a = G1Projective::zero();
+        let mut b = G1Projective::zero();
+        let mut d = G1Projective::zero();
+
+        for ((c, z, y, pi), r) in items.iter().zip(challenges.iter()) {
+            a += (*c - self.g1 * y) * r;
+            b += *pi * r;
+            d += *pi * (*z * r);
+        }
+
+        let lhs = Bls12_381::pairing(a + d, self.g2);
+        let rhs = Bls12_381::pairing(b, self.g2 * self.tau);
+        lhs == rhs
+    }
+
     // TODO: Real Verkle uses Pedersen hashing to map child commitments to field
     pub fn hash_to_scalar(data: &[u8]) -> Fr {
         let digset = blake3::hash(data);
