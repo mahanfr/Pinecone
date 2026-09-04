@@ -10,7 +10,7 @@ use crate::{kzg::KZG, utils::ToBytes};
 
 const KEY_LEN: usize = 32;
 pub const ARITY: usize = 256;
-const VERKLE_LEAF_DOMAIN: &[u8] = b"VERKLE_LEAF_V1";
+const VERKLE_LEAF_DOMAIN: &[u8] = b"IONIC_VERKLE_LEAF_V1";
 
 pub struct SparseVerkleTrie<T: ToBytes + Clone> {
     kzg: KZG,
@@ -288,10 +288,10 @@ impl<T: Clone + ToBytes> VerkleNode<T> {
                     None => G1Projective::zero(),
                 };
                 let mut coefficients = vec![Fr::zero(); ARITY];
-                for i in 0..ARITY {
+                for (i, coeff) in coefficients.iter_mut().enumerate().take(ARITY) {
                     if let Some(child) = branch.children[i].as_deref_mut() {
                         let commitment = child.commit(kzg);
-                        coefficients[i] = KZG::hash_g1_to_scalar(&commitment);
+                        *coeff = KZG::hash_g1_to_scalar(&commitment);
                     }
                 }
                 let evals = Evaluations::from_vec_and_domain(coefficients, kzg.domain);

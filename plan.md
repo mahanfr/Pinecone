@@ -2,9 +2,9 @@
 [X] Transactions
 [X] Blocks and block headers
 [X] Hashing / Merkle commitments
-[X] Basic VerkleTrie implementation
-[ ] Transaction signing and verification
-[ ] Genesis block
+[X] Non-Secure VerkleTrie implementation
+[X] Transaction signing and verification
+[X] Genesis block
 [ ] State model
 [ ] Virtual machine / smart contracts
 [ ] Consensus

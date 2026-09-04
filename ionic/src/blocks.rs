@@ -4,10 +4,10 @@ use log::warn;
 
 use crate::{
     transactions::{Transaction, transactions_root},
-    types::{BlockPos, PineAddr, PineHash},
+    types::{BlockPos, IonicAddr, IonicHash},
 };
 
-const BLOCK_DOMAIN: &[u8] = b"PINECONE_BLOCK_V1";
+const BLOCK_DOMAIN: &[u8] = b"IONIC_BLOCK";
 const BLOCK_VERSION: u8 = 1;
 
 fn current_timestamp() -> u128 {
@@ -26,9 +26,9 @@ pub struct Block {
 impl Block {
     pub fn new(
         position: BlockPos,
-        previous_hash: PineHash,
-        proposer: PineAddr,
-        state_root: PineHash,
+        previous_hash: IonicHash,
+        proposer: IonicAddr,
+        state_root: IonicHash,
         transactions: Vec<Transaction>,
     ) -> Self {
         let header = BlockHeader {
@@ -68,7 +68,7 @@ impl Block {
         true
     }
 
-    pub fn hash(&self) -> PineHash {
+    pub fn hash(&self) -> IonicHash {
         self.header.hash()
     }
 }
@@ -78,11 +78,11 @@ impl Block {
 pub struct BlockHeader {
     pub version: u8,
     pub position: BlockPos,
-    pub previous_hash: PineHash,
+    pub previous_hash: IonicHash,
     pub timestamp: u128,
-    pub proposer: PineAddr,
-    pub transactions_root: PineHash,
-    pub state_root: PineHash,
+    pub proposer: IonicAddr,
+    pub transactions_root: IonicHash,
+    pub state_root: IonicHash,
     // pub previous_rando // useed for smart contract random opcode
 }
 
@@ -100,7 +100,7 @@ impl BlockHeader {
         bytes
     }
 
-    pub fn hash(&self) -> PineHash {
+    pub fn hash(&self) -> IonicHash {
         let mut data = Vec::new();
         data.extend_from_slice(BLOCK_DOMAIN);
         data.extend_from_slice(&self.encode());

@@ -1,25 +1,6 @@
-[package]
-name = "pinecone"
-version = "0.1.0"
-edition = "2024"
+[workspace]
+resolver = "3"
+members = ["ionic","iovault"]
 
-[profile.release]
-opt-level = 3
-lto = true
-codegen-units = 1
-
-[dependencies]
-anyhow = "1"
-env_logger = "0.11"
+[workspace.dependencies]
 log = "0.4"
-base64 = "0.23"
-rand = "0.10"
-blake3 = "1.8"
-blst = "0.3"
-ed25519-dalek = { version = "3", features = ["rand_core"] }
-ark-std = "0.6"
-ark-bls12-381 = "0.6"
-ark-ff = "0.6"
-ark-ec = "0.6"
-ark-poly = "0.6"
-ark-serialize = "0.6"

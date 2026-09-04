@@ -1,14 +1,14 @@
 use ed25519_dalek::{Signature, Signer, Verifier, VerifyingKey};
 use log::error;
 
-use crate::types::{PineAddr, PineHash, PinePK, PineTXSignature, addr_from_pk};
+use crate::types::{IonicAddr, IonicHash, IonicPK, IonicTXSignature, addr_from_pk};
 
 const TX_VERSION: u8 = 1;
-const TX_DOMAIN: &[u8] = b"PINECONE_TX";
-const TX_SIGNATURE_DOMAIN: &[u8] = b"PINECONE_TX_SIGNATURE";
-const TX_EMPTY_ROOT_DOMAIN: &[u8] = b"PINECONE_EMPTY_TX_ROOT";
-const TX_EMPTY_DOMAIN: &[u8] = b"PINECONE_EMPTY_TX";
-const MERKLE_TREE_DOMAIN: &[u8] = b"PINECONE_MT";
+const TX_DOMAIN: &[u8] = b"IONIC_TX";
+const TX_SIGNATURE_DOMAIN: &[u8] = b"IONIC_TX_SIGNATURE";
+const TX_EMPTY_ROOT_DOMAIN: &[u8] = b"IONIC_EMPTY_TX_ROOT";
+const TX_EMPTY_DOMAIN: &[u8] = b"IONIC_EMPTY_TX";
+const MERKLE_TREE_DOMAIN: &[u8] = b"IONIC_MT";
 
 #[derive(Debug, Clone)]
 pub struct Transaction {
@@ -16,8 +16,8 @@ pub struct Transaction {
     pub chain_id: u64,
     // the current count of transactions from the address
     pub nonce: u64,
-    pub sender_pk: PinePK,
-    pub recepient: Option<PineAddr>,
+    pub sender_pk: IonicPK,
+    pub recepient: Option<IonicAddr>,
 
     pub value: u128,
     pub gas_limit: u64,
@@ -25,7 +25,7 @@ pub struct Transaction {
 
     pub data: Vec<u8>,
 
-    pub signature: PineTXSignature,
+    pub signature: IonicTXSignature,
 }
 
 impl Transaction {
@@ -34,7 +34,7 @@ impl Transaction {
         chain_id: u64,
         nonce: u64,
         sender_pk: [u8; 32],
-        recepient: Option<PineAddr>,
+        recepient: Option<IonicAddr>,
         value: u128,
         data: Vec<u8>,
     ) -> Self {
@@ -121,11 +121,11 @@ impl Transaction {
     }
 }
 
-pub fn transactions_root(transactions: &[Transaction]) -> PineHash {
+pub fn transactions_root(transactions: &[Transaction]) -> IonicHash {
     if transactions.is_empty() {
         return blake3::hash(TX_EMPTY_ROOT_DOMAIN).as_bytes().to_owned();
     }
-    let mut level: Vec<PineHash> = transactions.iter().map(|tx| tx.hash()).collect();
+    let mut level: Vec<IonicHash> = transactions.iter().map(|tx| tx.hash()).collect();
 
     while level.len() > 1 {
         let mut next = Vec::with_capacity(level.len().div_ceil(2));
