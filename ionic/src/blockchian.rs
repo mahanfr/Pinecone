@@ -36,7 +36,7 @@ impl Blockchain {
     pub fn genesis(chain_id: u64) -> Block {
         let transactions = Vec::new();
 
-        Block::new(
+        Block::new_unsigned(
             crate::types::BlockPos::new(0, 0),
             chain_id,
             [0u8; 32],
