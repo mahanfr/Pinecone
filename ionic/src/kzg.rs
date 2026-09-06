@@ -7,6 +7,7 @@ use ark_poly::{
 use ark_serialize::CanonicalSerialize;
 use ark_std::test_rng;
 
+#[derive(Debug)]
 pub struct KZG {
     pub tau: Fr,
     pub g1: G1Projective,

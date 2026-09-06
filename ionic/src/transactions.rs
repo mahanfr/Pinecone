@@ -1,7 +1,9 @@
+use std::fmt::Display;
+
 use ed25519_dalek::{Signature, Signer, Verifier, VerifyingKey};
 use log::error;
 
-use crate::types::{IonicAddr, IonicHash, IonicPK, IonicTXSignature, addr_from_pk};
+use crate::{types::{IonicAddr, IonicHash, IonicPK, IonicTXSignature, addr_from_pk}, utils::IonicBase64};
 
 const TX_VERSION: u8 = 1;
 const TX_DOMAIN: &[u8] = b"IONIC_TX";
@@ -29,32 +31,52 @@ pub struct Transaction {
 }
 
 impl Transaction {
-    pub fn new(
+    pub fn new_signed(
         sec_key: &ed25519_dalek::SigningKey,
         chain_id: u64,
         nonce: u64,
         sender_pk: [u8; 32],
         recepient: Option<IonicAddr>,
         value: u128,
+        gas_limit: u64,
+        max_fee: u128,
         data: Vec<u8>,
     ) -> Self {
-        let mut unsigned = Self {
+        let mut tx_unsigned = Self::new_unsigned(chain_id, nonce, sender_pk, recepient, value, gas_limit, max_fee, data);
+        tx_unsigned.sign(sec_key);
+        tx_unsigned
+    }
+
+    pub fn new_unsigned(
+        chain_id: u64,
+        nonce: u64,
+        sender_pk: [u8; 32],
+        recepient: Option<IonicAddr>,
+        value: u128,
+        gas_limit: u64,
+        max_fee: u128,
+        data: Vec<u8>,
+    ) -> Self {
+        Self {
             version: TX_VERSION,
             chain_id,
             nonce,
             sender_pk,
             recepient,
             value,
-            gas_limit: 0,
-            max_fee: 0,
+            gas_limit,
+            max_fee,
             data,
             signature: [0u8; 64],
-        };
-        let hash = unsigned.hash_unsigned();
-        let signature = sec_key.sign(&hash);
-        unsigned.signature = signature.to_bytes();
-        unsigned
+        }
     }
+
+    pub fn sign(&mut self, sec_key: &ed25519_dalek::SigningKey) {
+        let hash = self.hash_unsigned();
+        let signature = sec_key.sign(&hash);
+        self.signature = signature.to_bytes();
+    }
+
 
     pub fn verify(&self) -> bool {
         if self.signature.is_empty() {
@@ -121,6 +143,28 @@ impl Transaction {
     }
 }
 
+impl Display for Transaction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let recep = match self.recepient {
+            Some(recp) => IonicBase64::encode(recp),
+            None => "None".into()
+        };
+        write!(f, "Transaction V{} => {{ChainID: {}, Nonce: {}, From: {}, To: {}, ",
+            self.version,
+            self.chain_id,
+            self.nonce,
+            IonicBase64::encode(self.sender_pk),
+            recep,
+        )?;
+        write!(f, "Value: {}, Gas Limit: {}, Max Fee: {}, Signature: <{}>}}",
+            self.value,
+            self.gas_limit,
+            self.max_fee,
+            IonicBase64::encode(self.signature)
+        )
+    }
+}
+
 pub fn transactions_root(transactions: &[Transaction]) -> IonicHash {
     if transactions.is_empty() {
         return blake3::hash(TX_EMPTY_ROOT_DOMAIN).as_bytes().to_owned();
@@ -161,7 +205,8 @@ mod tests {
         let (privk, pubk) = generate_key_pair();
         let sender_pk = pubk.as_bytes().to_owned();
 
-        let transaction = Transaction::new(&privk, 0, 1, sender_pk, None, 0, vec![]);
+        let transaction =
+            Transaction::new_signed(&privk, 0, 1, sender_pk, None, 0, 0, 0, vec![]);
         assert!(transaction.verify())
     }
 }

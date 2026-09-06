@@ -12,6 +12,7 @@ const KEY_LEN: usize = 32;
 pub const ARITY: usize = 256;
 const VERKLE_LEAF_DOMAIN: &[u8] = b"IONIC_VERKLE_LEAF_V1";
 
+#[derive(Debug)]
 pub struct SparseVerkleTrie<T: ToBytes + Clone> {
     kzg: KZG,
     root: VerkleNode<T>,
@@ -29,7 +30,7 @@ impl<T: Clone + ToBytes> SparseVerkleTrie<T> {
         self.root.insert(key, 0, value);
         Ok(())
     }
-    pub fn get(&mut self, key: &[u8]) -> Result<Option<&T>, TrieError> {
+    pub fn get(&self, key: &[u8]) -> Result<Option<&T>, TrieError> {
         ensure_key(key)?;
         Ok(self.root.get(key, 0))
     }
@@ -106,6 +107,7 @@ impl<T: Clone + ToBytes> SparseVerkleTrie<T> {
     }
 }
 
+#[derive(Debug)]
 struct VerkleNodeBranch<T: ToBytes + Clone> {
     children: Vec<Option<Box<VerkleNode<T>>>>,
     occupied: Vec<u8>,
@@ -124,11 +126,13 @@ impl<T: ToBytes + Clone> VerkleNodeBranch<T> {
     }
 }
 
+#[derive(Debug)]
 struct VerkleNodeLeaf<T: ToBytes + Clone> {
     value: T,
     commitment: G1Projective,
 }
 
+#[derive(Debug)]
 enum VerkleNode<T: ToBytes + Clone> {
     Empty,
     Leaf(VerkleNodeLeaf<T>),
@@ -136,10 +140,6 @@ enum VerkleNode<T: ToBytes + Clone> {
 }
 
 impl<T: Clone + ToBytes> VerkleNode<T> {
-    pub fn new() -> Self {
-        Self::Empty
-    }
-
     pub fn insert(&mut self, key: &[u8], depth: usize, value: T) {
         if depth == KEY_LEN {
             let commitment = leaf_commitment(key, &value.to_bytes());

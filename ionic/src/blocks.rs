@@ -26,6 +26,7 @@ pub struct Block {
 impl Block {
     pub fn new(
         position: BlockPos,
+        chain_id: u64,
         previous_hash: IonicHash,
         proposer: IonicAddr,
         state_root: IonicHash,
@@ -33,6 +34,7 @@ impl Block {
     ) -> Self {
         let header = BlockHeader {
             version: BLOCK_VERSION,
+            chain_id,
             position,
             previous_hash,
             timestamp: current_timestamp(),
@@ -77,6 +79,7 @@ impl Block {
 // TODO: Add gas_limit/gad_used and base_fee_per_gas to the block
 pub struct BlockHeader {
     pub version: u8,
+    pub chain_id: u64,
     pub position: BlockPos,
     pub previous_hash: IonicHash,
     pub timestamp: u128,
@@ -91,6 +94,7 @@ impl BlockHeader {
         let mut bytes = Vec::new();
 
         bytes.push(self.version);
+        bytes.extend_from_slice(&self.chain_id.to_le_bytes());
         bytes.extend_from_slice(&self.position.to_bytes());
         bytes.extend_from_slice(&self.previous_hash);
         bytes.extend_from_slice(&self.timestamp.to_le_bytes());
@@ -106,16 +110,4 @@ impl BlockHeader {
         data.extend_from_slice(&self.encode());
         blake3::hash(&data).as_bytes().to_owned()
     }
-}
-
-pub fn genesis() -> Block {
-    let transactions = Vec::new();
-
-    Block::new(
-        BlockPos::new(0, 0),
-        [0u8; 32],
-        [0u8; 32],
-        [0u8; 32],
-        transactions,
-    )
 }

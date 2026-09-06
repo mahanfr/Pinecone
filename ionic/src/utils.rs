@@ -1,10 +1,12 @@
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD_INDIFFERENT};
+
 pub trait ToBytes {
     fn to_bytes(&self) -> Vec<u8>;
 }
 
 impl ToBytes for u32 {
     fn to_bytes(&self) -> Vec<u8> {
-        self.to_le_bytes().to_vec() // or to_be_bytes()
+        self.to_le_bytes().to_vec()
     }
 }
 
@@ -23,4 +25,14 @@ macro_rules! read_bytes {
         $pos = end;
         slice
     }};
+}
+
+pub struct IonicBase64 {}
+impl IonicBase64 {
+    pub fn encode<T: AsRef<[u8]>>(input: T) -> String {
+        URL_SAFE_NO_PAD_INDIFFERENT.encode(input)
+    }
+    pub fn decode<T: AsRef<[u8]>>(input: T) -> Vec<u8> {
+        URL_SAFE_NO_PAD_INDIFFERENT.decode(input).unwrap_or(b"UNPARSABLE".to_vec())
+    }
 }

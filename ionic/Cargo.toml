@@ -7,11 +7,11 @@ edition = "2024"
 # anyhow = "1"
 # env_logger = "0.11"
 log = {workspace = true}
-base64 = "0.23"
-rand = "0.10"
-blake3 = "1.8"
-blst = "0.3"
-ed25519-dalek = { version = "3", features = ["rand_core"] }
+base64 = {workspace = true}
+rand = {workspace = true}
+blake3 = {workspace = true}
+blst = {workspace = true}
+ed25519-dalek = {workspace = true}
 ark-std = "0.6"
 ark-bls12-381 = "0.6"
 ark-ff = "0.6"
