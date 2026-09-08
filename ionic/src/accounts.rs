@@ -1,12 +1,21 @@
-use crate::{read_bytes, utils::{FromBytes, ToBytes}};
+use crate::{
+    read_bytes,
+    utils::{FromBytes, ToBytes},
+};
 
-const ACCOUNT_DOMAIN : &[u8] = b"IONIC_ACCOUNT_V1";
+const ACCOUNT_DOMAIN: &[u8] = b"IONIC_ACCOUNT_V1";
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Account {
     pub nonce: u64,
     pub balance: u128,
     pub code: Vec<u8>,
+}
+
+impl Default for Account {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Account {
@@ -20,15 +29,15 @@ impl Account {
 }
 
 impl ToBytes for Account {
-   fn to_bytes(&self) -> Vec<u8> {
-       let mut bytes = Vec::new();
-       bytes.extend_from_slice(ACCOUNT_DOMAIN);
-       bytes.extend_from_slice(&self.nonce.to_le_bytes());
-       bytes.extend_from_slice(&self.balance.to_le_bytes());
-       bytes.extend_from_slice(&(self.code.len() as u64).to_le_bytes());
-       bytes.extend_from_slice(&self.code);
-       bytes
-   }
+    fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(ACCOUNT_DOMAIN);
+        bytes.extend_from_slice(&self.nonce.to_le_bytes());
+        bytes.extend_from_slice(&self.balance.to_le_bytes());
+        bytes.extend_from_slice(&(self.code.len() as u64).to_le_bytes());
+        bytes.extend_from_slice(&self.code);
+        bytes
+    }
 }
 
 impl FromBytes for Account {
@@ -47,17 +56,28 @@ impl FromBytes for Account {
 
         let code = read_bytes!(bytes, w, code_size).to_vec();
         let _ = w;
-        Self { nonce, balance, code }
+        Self {
+            nonce,
+            balance,
+            code,
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{accounts::Account, utils::{FromBytes, ToBytes}};
-    
+    use crate::{
+        accounts::Account,
+        utils::{FromBytes, ToBytes},
+    };
+
     #[test]
     pub fn encode_decode() {
-        let account = Account {nonce: 55, balance: 500, code: vec![1,2,3]};
+        let account = Account {
+            nonce: 55,
+            balance: 500,
+            code: vec![1, 2, 3],
+        };
         let bytes = account.to_bytes();
         let encoded_account = Account::from_bytes(&bytes);
         assert_eq!(account, encoded_account);

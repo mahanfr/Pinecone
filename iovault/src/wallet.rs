@@ -1,7 +1,11 @@
 use std::{error::Error, fmt::Display};
 
 use ed25519_dalek::SigningKey;
-use ionic::{accounts::Account, transactions::Transaction, types::{IonicAddr, IonicPK, addr_from_pk}};
+use ionic::{
+    accounts::Account,
+    transactions::Transaction,
+    types::{IonicAddr, IonicPK, addr_from_pk},
+};
 use log::warn;
 
 #[derive(Debug)]
@@ -33,18 +37,17 @@ impl Wallet {
         let Some(account) = &self.account else {
             return Err(WalletError::AccountInfoNotExists);
         };
-        let gas_limit = (account.balance / 3 & u64::MAX as u128) as u64;
-        let transaction = Transaction::new_signed(
-            &self.secret_key,
+        let gas_limit = 1000;
+        let transaction = Transaction::new_builder(
             self.chain_id,
             account.nonce,
             self.public_key,
             Some(recepient),
             value,
-            gas_limit,
-            100,
-            Vec::new()
-        );
+        )
+        .with_fees(gas_limit, 2000, 1000)
+        .sign(&self.secret_key)
+        .build();
         Ok(transaction)
     }
 
@@ -61,8 +64,10 @@ pub enum WalletError {
 impl Display for WalletError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            WalletError::AccountInfoNotExists =>
-                write!(f, "Acount Information dose not exists: please retrive the account information form a RPC node")
+            WalletError::AccountInfoNotExists => write!(
+                f,
+                "Acount Information dose not exists: please retrive the account information form a RPC node"
+            ),
         }
     }
 }

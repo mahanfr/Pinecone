@@ -2,7 +2,8 @@ use ark_bls12_381::{Bls12_381, Fr, G1Affine, G1Projective, G2Projective};
 use ark_ec::{CurveGroup, VariableBaseMSM, pairing::Pairing};
 use ark_ff::{Field, One, PrimeField, UniformRand, Zero};
 use ark_poly::{
-    DenseUVPolynomial, EvaluationDomain ,GeneralEvaluationDomain, Polynomial, univariate::{DenseOrSparsePolynomial, DensePolynomial}
+    DenseUVPolynomial, EvaluationDomain, GeneralEvaluationDomain, Polynomial,
+    univariate::{DenseOrSparsePolynomial, DensePolynomial},
 };
 use ark_serialize::CanonicalSerialize;
 use ark_std::test_rng;
@@ -38,13 +39,16 @@ impl KZG {
         let n = domain.size();
         let n_inv = Fr::from(n as u64).inverse().unwrap();
         let vanishing_at_tau = domain.evaluate_vanishing_polynomial(tau);
-        let powers_g1_lagrange: Vec<G1Affine> = domain.elements()
+        let powers_g1_lagrange: Vec<G1Affine> = domain
+            .elements()
             .map(|omega_i| {
-                let denom = (tau - omega_i).inverse()
+                let denom = (tau - omega_i)
+                    .inverse()
                     .expect("tau collided with domain point");
                 let l_i = omega_i * n_inv * vanishing_at_tau * denom;
                 (g1 * l_i).into_affine()
-            }).collect();
+            })
+            .collect();
 
         Self {
             tau,
@@ -52,7 +56,7 @@ impl KZG {
             g2,
             powers_g1,
             domain,
-            powers_g1_lagrange
+            powers_g1_lagrange,
         }
     }
 
@@ -146,7 +150,9 @@ impl KZG {
     }
 
     pub fn verify_batch(&self, items: &[(G1Projective, Fr, Fr, G1Projective)]) -> bool {
-        if items.is_empty() { return true;}
+        if items.is_empty() {
+            return true;
+        }
 
         let mut transcript = Vec::new();
         for (c, z, y, pi) in items {
@@ -160,7 +166,8 @@ impl KZG {
                 let mut seed = transcript.clone();
                 seed.extend_from_slice(&(i as u64).to_le_bytes());
                 KZG::hash_to_scalar(&seed)
-            }).collect();
+            })
+            .collect();
         let mut a = G1Projective::zero();
         let mut b = G1Projective::zero();
         let mut d = G1Projective::zero();

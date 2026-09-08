@@ -18,6 +18,12 @@ pub struct SparseVerkleTrie<T: ToBytes + Clone> {
     root: VerkleNode<T>,
 }
 
+impl<T: Clone + ToBytes> Default for SparseVerkleTrie<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T: Clone + ToBytes> SparseVerkleTrie<T> {
     pub fn new() -> Self {
         Self {
@@ -143,10 +149,7 @@ impl<T: Clone + ToBytes> VerkleNode<T> {
     pub fn insert(&mut self, key: &[u8], depth: usize, value: T) {
         if depth == KEY_LEN {
             let commitment = leaf_commitment(key, &value.to_bytes());
-            *self = VerkleNode::Leaf(VerkleNodeLeaf {
-                commitment,
-                value,
-            });
+            *self = VerkleNode::Leaf(VerkleNodeLeaf { commitment, value });
             return;
         }
         match self {

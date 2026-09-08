@@ -1,23 +1,15 @@
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use log::{error, warn};
 
 use crate::{
     transactions::{Transaction, transactions_root},
     types::{BlockPos, IonicHash, IonicPK, IonicTXSignature},
+    utils::current_timestamp,
 };
 
 const BLOCK_DOMAIN: &[u8] = b"IONIC_BLOCK";
 const BLOCK_HEADER_DOMAIN: &[u8] = b"IONIC_BLOCK_HEADER";
 const BLOCK_VERSION: u8 = 1;
-
-fn current_timestamp() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("System clock is before Unix epoch")
-        .as_secs()
-}
 
 #[derive(Debug, Clone)]
 pub struct Block {
@@ -45,13 +37,14 @@ impl Block {
             transactions_root: transactions_root(&transactions),
             state_root,
             gas_limit: 0,
-            max_fee: 0,
+            gas_used: 0,
+            base_fee: 0,
         };
 
         Self {
             header,
             transactions,
-            signature: [0u8; 64]
+            signature: [0u8; 64],
         }
     }
 
@@ -64,24 +57,14 @@ impl Block {
         state_root: IonicHash,
         transactions: Vec<Transaction>,
     ) -> Self {
-        let header = BlockHeader {
-            version: BLOCK_VERSION,
-            chain_id,
+        let mut block = Self::new_unsigned(
             position,
+            chain_id,
             previous_hash,
-            timestamp: current_timestamp(),
             proposer,
-            transactions_root: transactions_root(&transactions),
             state_root,
-            gas_limit: 0,
-            max_fee: 0,
-        };
-
-        let mut block = Self {
-            header,
             transactions,
-            signature: [0u8; 64]
-        };
+        );
         block.sign(sk);
         block
     }
@@ -105,7 +88,8 @@ impl Block {
             }
         };
         let hash = self.header.hash();
-        pk.verify(&hash, &Signature::from_bytes(&self.signature)).is_ok()
+        pk.verify(&hash, &Signature::from_bytes(&self.signature))
+            .is_ok()
     }
 
     pub fn validate_basic(&self, parent: &BlockHeader) -> bool {
@@ -134,7 +118,7 @@ impl Block {
     }
 
     pub fn hash(&self) -> IonicHash {
-        assert_ne!(self.signature, [0u8;64]);
+        assert_ne!(self.signature, [0u8; 64]);
         let mut data = Vec::new();
         data.extend_from_slice(BLOCK_DOMAIN);
         data.extend_from_slice(&self.header.hash());
@@ -143,7 +127,7 @@ impl Block {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct BlockHeader {
     pub version: u8,
     pub chain_id: u64,
@@ -154,7 +138,8 @@ pub struct BlockHeader {
     pub transactions_root: IonicHash,
     pub state_root: IonicHash,
     pub gas_limit: u64,
-    pub max_fee: u128,
+    pub gas_used: u64,
+    pub base_fee: u128,
     // pub previous_rando // useed for smart contract random opcode
 }
 
@@ -171,7 +156,8 @@ impl BlockHeader {
         bytes.extend_from_slice(&self.transactions_root);
         bytes.extend_from_slice(&self.state_root);
         bytes.extend_from_slice(&self.gas_limit.to_le_bytes());
-        bytes.extend_from_slice(&self.max_fee.to_le_bytes());
+        bytes.extend_from_slice(&self.gas_used.to_le_bytes());
+        bytes.extend_from_slice(&self.base_fee.to_le_bytes());
         bytes
     }
 

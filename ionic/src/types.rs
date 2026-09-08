@@ -6,6 +6,8 @@ pub type IonicPK = [u8; 32];
 pub type IonicHash = [u8; 32];
 pub type IonicAddr = [u8; 32];
 pub type IonicTXSignature = [u8; 64];
+pub type IonicTimeStamp = u64;
+pub type IonicNonce = u64;
 
 pub type IonicBlsSigbature = [u8; 96];
 pub type IonicBlsPk = [u8; 48];

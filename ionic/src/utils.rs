@@ -1,3 +1,5 @@
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD_INDIFFERENT};
 
 pub trait ToBytes {
@@ -12,6 +14,13 @@ impl ToBytes for u32 {
 
 pub trait FromBytes {
     fn from_bytes(bytes: &[u8]) -> Self;
+}
+
+pub fn current_timestamp() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("System clock is before Unix epoch")
+        .as_secs()
 }
 
 #[macro_export]
@@ -33,6 +42,8 @@ impl IonicBase64 {
         URL_SAFE_NO_PAD_INDIFFERENT.encode(input)
     }
     pub fn decode<T: AsRef<[u8]>>(input: T) -> Vec<u8> {
-        URL_SAFE_NO_PAD_INDIFFERENT.decode(input).unwrap_or(b"UNPARSABLE".to_vec())
+        URL_SAFE_NO_PAD_INDIFFERENT
+            .decode(input)
+            .unwrap_or(b"UNPARSABLE".to_vec())
     }
 }

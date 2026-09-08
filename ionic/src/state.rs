@@ -1,6 +1,9 @@
-use std::{error::Error, fmt::Display};
-
-use crate::{accounts::Account, transactions::Transaction, verkletrie::SparseVerkleTrie};
+use crate::{
+    accounts::Account,
+    transactions::{Transaction, TransactionError},
+    types::IonicAddr,
+    verkletrie::SparseVerkleTrie,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TxExecutionStatus {
@@ -18,57 +21,53 @@ pub struct TxExecutionResult {
 
 #[derive(Debug)]
 pub struct IonicState {
+    pub chain_id: u64,
     pub accounts: Option<SparseVerkleTrie<Account>>,
 }
 
 impl IonicState {
-    pub fn new() -> Self {
+    pub fn new(chain_id: u64) -> Self {
         Self {
-            accounts: None
+            chain_id,
+            accounts: None,
         }
     }
 
-    pub fn validate_transaction(&self, tx: &Transaction) -> Result<(), TxExecutionError> {
-        if self.accounts.is_none() {
-            return Err(TxExecutionError::UnavailableState);
+    pub fn validate_transaction(&self, tx: &Transaction) -> Result<(), TransactionError> {
+        if !tx.verify_signature() {
+            return Err(TransactionError::InvalidTxSignature);
         }
-        if !tx.verify() {
-            return Err(TxExecutionError::InvalidSignature);
+        if tx.chain_id != self.chain_id {
+            return Err(TransactionError::InvalidChainID);
         }
         let sender_addr = &tx.sender();
-        let account = match self.accounts.as_ref().unwrap().get(sender_addr) {
-            Ok(op_ac) => match op_ac {
-                Some(ac) => ac,
-                None => {
-                    return Err(TxExecutionError::InvalidAccount)
-                }
-            },
-            Err(_) => {
-                return Err(TxExecutionError::InvalidAccount)
-            }
-        };
-        Self::perform_precheck(&account, tx)?;
+        let account = self.get_account(sender_addr)?;
+        Self::perform_precheck(account, tx)?;
         Ok(())
     }
 
-    pub fn apply_transaction(&mut self, tx: &Transaction) -> Result<TxExecutionResult, TxExecutionError> {
+    pub fn get_account(&self, addr: &IonicAddr) -> Result<&Account, TransactionError> {
         if self.accounts.is_none() {
-            return Err(TxExecutionError::UnavailableState);
+            return Err(TransactionError::UnavailableState);
         }
-        let sender_addr = &tx.sender();
-        let account = match self.accounts.as_ref().unwrap().get(sender_addr) {
+        let account = match self.accounts.as_ref().unwrap().get(addr) {
             Ok(op_ac) => match op_ac {
                 Some(ac) => ac,
-                None => {
-                    return Err(TxExecutionError::InvalidAccount)
-                }
+                None => return Err(TransactionError::InvalidAccount),
             },
-            Err(_) => {
-                return Err(TxExecutionError::InvalidAccount)
-            }
+            Err(_) => return Err(TransactionError::InvalidAccount),
         };
-        // Precheck Balance and Nonce
-        Self::perform_precheck(&account, tx)?;
+        Ok(account)
+    }
+
+    pub fn apply_transaction(
+        &mut self,
+        tx: &Transaction,
+    ) -> Result<TxExecutionResult, TransactionError> {
+        let sender_addr = &tx.sender();
+        self.validate_transaction(tx)?;
+        let account = self.get_account(sender_addr)?;
+        Self::perform_precheck(account, tx)?;
         let mut balance = account.balance;
         // TODO: calculate base fee
         let base_fee = 100;
@@ -87,45 +86,25 @@ impl IonicState {
         };
         // Apply
         // TODO: Verkletrie should have a buffer qeueue that then applies the changes.
-        self.accounts.as_mut().unwrap().insert(sender_addr, account).unwrap();
-        Ok(TxExecutionResult { status: TxExecutionStatus::Success, validation_tip, gas_used })
+        self.accounts
+            .as_mut()
+            .unwrap()
+            .insert(sender_addr, account)
+            .unwrap();
+        Ok(TxExecutionResult {
+            status: TxExecutionStatus::Success,
+            validation_tip,
+            gas_used,
+        })
     }
 
-    fn perform_precheck(account: &Account, tx: &Transaction) -> Result<(), TxExecutionError> {
-        if account.nonce != tx.nonce {
-            return Err(TxExecutionError::InvalidNonce);
+    fn perform_precheck(account: &Account, tx: &Transaction) -> Result<(), TransactionError> {
+        if account.nonce <= tx.nonce {
+            return Err(TransactionError::InvalidNonce);
         }
         if account.balance < tx.value + (tx.gas_limit as u128 * tx.max_fee) {
-            return Err(TxExecutionError::InsufficientBalance);
+            return Err(TransactionError::InsufficientBalance);
         }
         Ok(())
     }
 }
-
-#[derive(Debug)]
-pub enum TxExecutionError {
-    InvalidNonce,
-    InsufficientBalance,
-    InvalidAccount,
-    UnavailableState,
-    InvalidSignature,
-}
-
-impl Display for TxExecutionError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::InvalidNonce =>
-                write!(f, "Invalid Nonce: nonce dose not match the account state"),
-            Self::InsufficientBalance =>
-                write!(f, "Insufficient Balance: balance is insufficient for this operation"),
-            Self::InvalidAccount =>
-                write!(f, "Invalid Account: can not find any account linked with the provided address"),
-            Self::UnavailableState =>
-                write!(f, "Unavailable State: consider downloading the state form a state owner"),
-            Self::InvalidSignature =>
-                write!(f, "Invalid Signature: the transaction is not signed by the creator")
-        }
-    }
-}
-
-impl Error for TxExecutionError {}
