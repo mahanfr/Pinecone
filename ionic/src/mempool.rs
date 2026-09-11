@@ -1,15 +1,13 @@
+// TODO: Make IonicAddr and IonicHash into a structure
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     error::Error,
     fmt::Display,
     sync::{Arc, PoisonError, RwLock},
 };
 
 use crate::{
-    blockchian::Blockchain,
-    transactions::{Transaction, TransactionError},
-    types::{IonicAddr, IonicHash},
-    utils::current_timestamp,
+    blockchian::Blockchain, transactions::{Transaction, TransactionError}, types::{IonicAddr, IonicHash}, utils::current_timestamp
 };
 
 pub const MEMPOOL_MAX_CAPACITY: usize = 16;
@@ -24,7 +22,7 @@ pub enum MempoolStatus {
 pub struct Mempool {
     pub pending: RwLock<HashMap<IonicHash, Arc<Transaction>>>,
     pub backlog: RwLock<HashMap<IonicHash, Arc<Transaction>>>,
-    pub by_sender: RwLock<HashMap<IonicAddr, HashMap<u64, IonicHash>>>,
+    pub by_sender: RwLock<HashMap<IonicAddr, BTreeMap<u64, IonicHash>>>,
     pub priority_index: RwLock<BTreeMap<(u128, MempoolStatus, u64, IonicHash), IonicHash>>,
 }
 
@@ -73,6 +71,54 @@ impl Mempool {
         Ok(())
     }
 
+    pub async fn select_for_block(&self, min: usize, max: usize) -> Result<Vec<Arc<Transaction>>, MempoolError> {
+        let mut transactions = Vec::with_capacity(max);
+        let priority_index = self.priority_index.read()?;
+        let pending = self.pending.read()?;
+        let by_sender = self.by_sender.read()?;
+        let mut already_added = HashSet::<IonicHash>::new();
+        for (score, key) in priority_index.iter().rev() {
+            if transactions.len() == max { break; }
+            if already_added.contains(key) { continue; }
+
+            if score.1 != MempoolStatus::Pending { continue;}
+            let Some(tx) = pending.get(key) else { continue; };
+
+            let sender_addr = tx.sender();
+            let Some(sender_nonce_map) = by_sender.get(&sender_addr) else { continue; };
+
+            let mut prev_nonce : u64 = u64::MAX;
+            let mut temp_added = Vec::new();
+            for (nonce, inner_key) in sender_nonce_map.iter() {
+                if already_added.contains(inner_key) { continue; }
+                if !pending.contains_key(inner_key) { break; }
+                if prev_nonce != u64::MAX {
+                    if prev_nonce + 1 != *nonce {
+                        break;
+                    }
+                }
+                if transactions.len() + temp_added.len() + 1 <= max {
+                    temp_added.push(*inner_key);
+                    already_added.insert(*inner_key);
+                } else {
+                    break;
+                }
+                prev_nonce = *nonce;
+            }
+            for tx_key in temp_added.iter() {
+                let Some(tx) = pending.get(tx_key) else {
+                    return Err(MempoolError::MempoolOutOfSync);
+                };
+                transactions.push(tx.to_owned());
+            }
+        }
+        if transactions.len() < min {
+            return Err(MempoolError::NotEnoughTransactions);
+        }
+
+        Ok(transactions)
+    }
+
     fn submit_to_pending(
         &mut self,
         key: IonicHash,
@@ -84,7 +130,7 @@ impl Mempool {
         pending.insert(key, tx.clone());
         by_sender
             .entry(tx.sender())
-            .or_insert_with(HashMap::new)
+            .or_insert_with(BTreeMap::new)
             .insert(tx.nonce, key);
 
         Ok(())
@@ -120,7 +166,7 @@ impl Mempool {
         backlog.insert(key, tx.clone());
         by_sender
             .entry(tx.sender())
-            .or_insert_with(HashMap::new)
+            .or_insert_with(BTreeMap::new)
             .insert(tx.nonce, key);
 
         Ok(())
@@ -201,7 +247,9 @@ pub enum MempoolError {
     InvalidTransaction(TransactionError),
     TransactionAlreadyExists,
     MempoolFull,
+    NotEnoughTransactions,
     InternalError,
+    MempoolOutOfSync,
 }
 
 impl From<TransactionError> for MempoolError {
@@ -229,6 +277,11 @@ impl Display for MempoolError {
                 f,
                 "Transaction Already Exists: can not add transaction into the mempool"
             ),
+            Self::NotEnoughTransactions => write!(
+                f,
+                "Not Enough Transactions: Pending Transactions dose not reach your desierd minimum"
+            ),
+            Self::MempoolOutOfSync => write!(f, "Mempool out of sync: Key pointing to transactions that dose not exists"),
         }
     }
 }
