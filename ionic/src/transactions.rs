@@ -4,7 +4,7 @@ use ed25519_dalek::{Signature, Signer, Verifier, VerifyingKey};
 use log::{error, warn};
 
 use crate::{
-    types::{IonicAddr, IonicHash, IonicPK, IonicTXSignature, addr_from_pk},
+    types::{IonicAddr, IonicHash, IonicPK, IonicTXSignature},
     utils::IonicBase64,
 };
 
@@ -78,7 +78,7 @@ impl Default for Transaction {
             version: TX_VERSION,
             chain_id: 0,
             nonce: 0,
-            sender_pk: [0u8; 32],
+            sender_pk: IonicPK::default(),
             recepient: None,
             value: 0,
             gas_limit: 0,
@@ -114,7 +114,7 @@ impl Transaction {
 
     pub fn sign(&mut self, sec_key: &ed25519_dalek::SigningKey) {
         let hash = self.hash_unsigned();
-        let signature = sec_key.sign(&hash);
+        let signature = sec_key.sign(&hash.as_ref());
         self.signature = signature.to_bytes();
     }
 
@@ -123,8 +123,8 @@ impl Transaction {
             error!("Empty Signature: The transaction has not been signed");
             return false;
         }
-        let public_key = match VerifyingKey::from_bytes(&self.sender_pk) {
-            Ok(key) => key,
+        let public_key : VerifyingKey = match &self.sender_pk.try_into() {
+            Ok(key) => *key,
             Err(_) => {
                 error!("Invalid Sender Publick Key");
                 return false;
@@ -132,7 +132,7 @@ impl Transaction {
         };
         let hash = self.hash_unsigned();
         public_key
-            .verify(&hash, &Signature::from_bytes(&self.signature))
+            .verify(&hash.as_ref(), &Signature::from_bytes(&self.signature))
             .is_ok()
     }
 
@@ -141,13 +141,13 @@ impl Transaction {
         bytes.push(self.version);
         bytes.extend_from_slice(&self.chain_id.to_le_bytes());
         bytes.extend_from_slice(&self.nonce.to_le_bytes());
-        bytes.extend_from_slice(&self.sender_pk);
+        bytes.extend_from_slice(&self.sender_pk.as_ref());
 
         // encoding Option
         match self.recepient {
             Some(addr) => {
                 bytes.push(1u8);
-                bytes.extend_from_slice(&addr);
+                bytes.extend_from_slice(&addr.as_ref());
             }
             None => {
                 bytes.push(0u8);
@@ -164,23 +164,23 @@ impl Transaction {
         bytes
     }
 
-    fn hash_unsigned(&self) -> [u8; 32] {
+    fn hash_unsigned(&self) -> IonicHash {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(TX_SIGNATURE_DOMAIN);
         bytes.extend_from_slice(&self.encode_unsigned());
-        blake3::hash(&bytes).as_bytes().to_owned()
+        blake3::hash(&bytes).into()
     }
 
-    pub fn hash(&self) -> [u8; 32] {
+    pub fn hash(&self) -> IonicHash {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(TX_DOMAIN);
         bytes.extend_from_slice(&self.encode_unsigned());
         bytes.extend_from_slice(&self.signature);
-        blake3::hash(&bytes).as_bytes().to_owned()
+        blake3::hash(&bytes).into()
     }
 
     pub fn sender(&self) -> IonicAddr {
-        addr_from_pk(&self.sender_pk)
+        IonicAddr::from_pk(&self.sender_pk)
     }
 
     pub fn priority_fee(&self, base_fee: u128) -> Result<u128, TransactionError> {
@@ -227,7 +227,7 @@ impl Display for Transaction {
 
 pub fn transactions_root(transactions: &[Transaction]) -> IonicHash {
     if transactions.is_empty() {
-        return blake3::hash(TX_EMPTY_ROOT_DOMAIN).as_bytes().to_owned();
+        return blake3::hash(TX_EMPTY_ROOT_DOMAIN).into();
     }
     let mut level: Vec<IonicHash> = transactions.iter().map(|tx| tx.hash()).collect();
 
@@ -239,15 +239,15 @@ pub fn transactions_root(transactions: &[Transaction]) -> IonicHash {
             let right = if pair.len() == 2 {
                 pair[1]
             } else {
-                blake3::hash(TX_EMPTY_DOMAIN).as_bytes().to_owned()
+                blake3::hash(TX_EMPTY_DOMAIN).into()
             };
 
             let mut data = Vec::new();
             data.extend_from_slice(MERKLE_TREE_DOMAIN);
-            data.extend_from_slice(left);
-            data.extend_from_slice(&right);
+            data.extend_from_slice(left.as_ref());
+            data.extend_from_slice(&right.as_ref());
 
-            next.push(blake3::hash(&data).as_bytes().to_owned());
+            next.push(blake3::hash(&data).into());
         }
         level = next;
     }
@@ -310,9 +310,8 @@ mod tests {
     pub fn sign_and_verify_transaction() {
         // Generate Public/Private key
         let (privk, pubk) = generate_key_pair();
-        let sender_pk = pubk.as_bytes().to_owned();
 
-        let transaction = Transaction::new_builder(0, 0, sender_pk, None, 0)
+        let transaction = Transaction::new_builder(0, 0, pubk.into(), None, 0)
             .with_fees(100, 2000, 1000)
             .sign(&privk)
             .build();

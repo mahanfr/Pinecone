@@ -1,7 +1,7 @@
 mod wallet;
 
 use clap::{Parser, Subcommand};
-use ionic::{accounts::Account, keygen::generate_key_pair, utils::IonicBase64};
+use ionic::{accounts::Account, keygen::generate_key_pair, types::IonicAddr};
 
 use crate::wallet::Wallet;
 
@@ -33,7 +33,7 @@ pub enum WalletCommands {
 fn main() {
     let cli = Cli::parse();
     let (sk, pk) = generate_key_pair();
-    let mut wallet = Wallet::new(sk, pk.to_bytes(), 0);
+    let mut wallet = Wallet::new(sk, pk.into(), 0);
     let account = Account {
         nonce: 0,
         balance: 1_000_000_000,
@@ -44,13 +44,12 @@ fn main() {
     match cli.command {
         Commands::Wallet(cmd) => match cmd {
             WalletCommands::Account => {
-                let addr_str = IonicBase64::encode(wallet.address);
-                println!("<{}>: {:?}", addr_str, wallet.account);
+                println!("<{}>: {:?}", wallet.address, wallet.account);
             }
             WalletCommands::Send { to, amount } => {
-                let recepient = IonicBase64::decode(to);
+                let recepient = IonicAddr::try_from(to).unwrap();
                 let tx = wallet
-                    .create_tx(amount, recepient[..32].try_into().unwrap())
+                    .create_tx(amount, recepient)
                     .unwrap();
                 println!("{}", tx);
                 wallet.submit();

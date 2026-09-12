@@ -4,7 +4,7 @@ use log::{error, warn};
 use crate::{
     transactions::{Transaction, transactions_root},
     types::{BlockPos, IonicHash, IonicPK, IonicTXSignature},
-    utils::current_timestamp,
+    utils::{ToBytes, current_timestamp},
 };
 
 const BLOCK_DOMAIN: &[u8] = b"IONIC_BLOCK";
@@ -70,8 +70,8 @@ impl Block {
     }
 
     pub fn sign(&mut self, sk: &SigningKey) {
-        let bytes = self.header.hash();
-        let signature = sk.sign(&bytes);
+        let hash = self.header.hash();
+        let signature = sk.sign(&hash.to_bytes());
         self.signature = signature.to_bytes();
     }
 
@@ -80,15 +80,15 @@ impl Block {
             error!("Empty Signature: The Block has not been signed");
             return false;
         }
-        let pk = match VerifyingKey::from_bytes(&self.header.proposer) {
-            Ok(key) => key,
+        let pk: VerifyingKey = match &self.header.proposer.try_into() {
+            Ok(key) => *key,
             Err(_) => {
                 error!("preposer has not a valid public key");
                 return false;
             }
         };
         let hash = self.header.hash();
-        pk.verify(&hash, &Signature::from_bytes(&self.signature))
+        pk.verify(&hash.as_ref(), &Signature::from_bytes(&self.signature))
             .is_ok()
     }
 
@@ -121,9 +121,9 @@ impl Block {
         assert_ne!(self.signature, [0u8; 64]);
         let mut data = Vec::new();
         data.extend_from_slice(BLOCK_DOMAIN);
-        data.extend_from_slice(&self.header.hash());
+        data.extend_from_slice(&self.header.hash().as_ref());
         data.extend_from_slice(&self.signature);
-        blake3::hash(&data).as_bytes().to_owned()
+        blake3::hash(&data).into()
     }
 }
 
@@ -150,11 +150,11 @@ impl BlockHeader {
         bytes.push(self.version);
         bytes.extend_from_slice(&self.chain_id.to_le_bytes());
         bytes.extend_from_slice(&self.position.to_bytes());
-        bytes.extend_from_slice(&self.previous_hash);
+        bytes.extend_from_slice(&self.previous_hash.as_ref());
         bytes.extend_from_slice(&self.timestamp.to_le_bytes());
-        bytes.extend_from_slice(&self.proposer);
-        bytes.extend_from_slice(&self.transactions_root);
-        bytes.extend_from_slice(&self.state_root);
+        bytes.extend_from_slice(&self.proposer.as_ref());
+        bytes.extend_from_slice(&self.transactions_root.as_ref());
+        bytes.extend_from_slice(&self.state_root.as_ref());
         bytes.extend_from_slice(&self.gas_limit.to_le_bytes());
         bytes.extend_from_slice(&self.gas_used.to_le_bytes());
         bytes.extend_from_slice(&self.base_fee.to_le_bytes());
@@ -165,6 +165,6 @@ impl BlockHeader {
         let mut data = Vec::new();
         data.extend_from_slice(BLOCK_HEADER_DOMAIN);
         data.extend_from_slice(&self.encode());
-        blake3::hash(&data).as_bytes().to_owned()
+        blake3::hash(&data).into()
     }
 }

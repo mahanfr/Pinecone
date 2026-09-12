@@ -1,4 +1,3 @@
-// TODO: Make IonicAddr and IonicHash into a structure
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     error::Error,

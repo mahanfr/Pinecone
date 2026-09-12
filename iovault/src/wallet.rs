@@ -4,7 +4,7 @@ use ed25519_dalek::SigningKey;
 use ionic::{
     accounts::Account,
     transactions::Transaction,
-    types::{IonicAddr, IonicPK, addr_from_pk},
+    types::{IonicAddr, IonicPK},
 };
 use log::warn;
 
@@ -19,7 +19,7 @@ pub struct Wallet {
 
 impl Wallet {
     pub fn new(sk: SigningKey, pk: IonicPK, chain_id: u64) -> Self {
-        let address = addr_from_pk(&pk);
+        let address = IonicAddr::from_pk(&pk);
         Self {
             secret_key: sk,
             public_key: pk,

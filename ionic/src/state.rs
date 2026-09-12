@@ -50,7 +50,7 @@ impl IonicState {
         if self.accounts.is_none() {
             return Err(TransactionError::UnavailableState);
         }
-        let account = match self.accounts.as_ref().unwrap().get(addr) {
+        let account = match self.accounts.as_ref().unwrap().get(addr.as_ref()) {
             Ok(op_ac) => match op_ac {
                 Some(ac) => ac,
                 None => return Err(TransactionError::InvalidAccount),
@@ -89,7 +89,7 @@ impl IonicState {
         self.accounts
             .as_mut()
             .unwrap()
-            .insert(sender_addr, account)
+            .insert(sender_addr.as_ref(), account)
             .unwrap();
         Ok(TxExecutionResult {
             status: TxExecutionStatus::Success,

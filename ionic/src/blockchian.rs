@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::{blocks::Block, state::IonicState, transactions::TransactionError};
+use crate::{blocks::Block, state::IonicState, transactions::TransactionError, types::{IonicHash, IonicPK}};
 
 #[derive(Debug)]
 pub struct Blockchain {
@@ -39,9 +39,9 @@ impl Blockchain {
         let mut block = Block::new_unsigned(
             crate::types::BlockPos::new(0, 0),
             chain_id,
-            [0u8; 32],
-            [0u8; 32],
-            [0u8; 32],
+            IonicHash::default(),
+            IonicPK::default(),
+            IonicHash::default(),
             transactions,
         );
         block.header.base_fee = 100;
