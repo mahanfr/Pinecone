@@ -5,7 +5,7 @@ use log::{error, warn};
 
 use crate::{
     types::{IonicAddr, IonicHash, IonicPK, IonicTXSignature},
-    utils::IonicBase64,
+    utils::{IonicBase64, current_timestamp},
 };
 
 const TX_VERSION: u8 = 1;
@@ -66,6 +66,7 @@ pub struct Transaction {
     pub gas_limit: u64,
     pub max_fee: u128,
     pub max_priority_fee: u128,
+    pub timestamp: u64,
 
     pub data: Vec<u8>,
 
@@ -80,6 +81,7 @@ impl Default for Transaction {
             nonce: 0,
             sender_pk: IonicPK::default(),
             recepient: None,
+            timestamp: current_timestamp(),
             value: 0,
             gas_limit: 0,
             max_fee: 0,
@@ -158,6 +160,7 @@ impl Transaction {
         bytes.extend_from_slice(&self.gas_limit.to_le_bytes());
         bytes.extend_from_slice(&self.max_fee.to_le_bytes());
         bytes.extend_from_slice(&self.max_priority_fee.to_le_bytes());
+        bytes.extend_from_slice(&self.timestamp.to_le_bytes());
 
         bytes.extend_from_slice(&self.data.len().to_le_bytes());
         bytes.extend_from_slice(&self.data);

@@ -4,6 +4,7 @@ use crate::{blocks::Block, state::IonicState, transactions::TransactionError, ty
 
 #[derive(Debug)]
 pub struct Blockchain {
+    pub id: u64,
     pub chain: Vec<Block>,
     pub state: IonicState,
 }
@@ -11,6 +12,7 @@ pub struct Blockchain {
 impl Blockchain {
     pub fn new(chain_id: u64) -> Self {
         Self {
+            id: chain_id,
             chain: vec![Self::genesis(chain_id)],
             state: IonicState::new(chain_id),
         }
@@ -53,20 +55,10 @@ impl Blockchain {
     }
 
     pub fn base_fee(&self) -> u128 {
-        let last_block_header = self.head().unwrap().header;
-        let current_base_fee = last_block_header.base_fee;
-        let gas_target = last_block_header.gas_limit / 2;
-        if gas_target == 0 {
-            return current_base_fee;
+        match self.head() {
+            Some(head) => head.next_base_fee(),
+            None => Self::genesis(self.id).next_base_fee()
         }
-        // base_fee(N) * (gas_used(N) - gas_target(N)) / (gas_target(N) * 8)
-        let inflaition =
-            current_base_fee * ((last_block_header.gas_used - gas_target) / gas_target * 8) as u128;
-        let base_fee = current_base_fee + inflaition;
-        if base_fee < 1 {
-            return 1;
-        }
-        base_fee
     }
 }
 
