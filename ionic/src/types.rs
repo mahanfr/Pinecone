@@ -9,18 +9,18 @@ const IONIC_ADDR_DOMAIN: &[u8] = b"IONIC_ADDR";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct IonicPK {
-    pk: [u8; 32]
+    pk: [u8; 32],
 }
 
 impl Default for IonicPK {
     fn default() -> Self {
-        Self { pk: [0u8;32]}
+        Self { pk: [0u8; 32] }
     }
 }
 
 impl Into<[u8; 32]> for IonicPK {
     fn into(self) -> [u8; 32] {
-       self.pk
+        self.pk
     }
 }
 
@@ -32,21 +32,22 @@ impl ToBytes for IonicPK {
 
 impl From<VerifyingKey> for IonicPK {
     fn from(value: VerifyingKey) -> Self {
-        Self { pk: value.as_bytes().to_owned() }
+        Self {
+            pk: value.as_bytes().to_owned(),
+        }
     }
 }
 
 impl TryInto<VerifyingKey> for IonicPK {
     type Error = IonicParsingError;
     fn try_into(self) -> Result<VerifyingKey, Self::Error> {
-        VerifyingKey::from_bytes(&self.pk)
-            .map_err(|_| IonicParsingError::InvalidData)
+        VerifyingKey::from_bytes(&self.pk).map_err(|_| IonicParsingError::InvalidData)
     }
 }
 
-impl From<[u8;32]> for IonicPK {
-    fn from(value: [u8;32]) -> Self {
-        Self {pk:value}
+impl From<[u8; 32]> for IonicPK {
+    fn from(value: [u8; 32]) -> Self {
+        Self { pk: value }
     }
 }
 
@@ -58,18 +59,18 @@ impl AsRef<[u8]> for IonicPK {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct IonicHash {
-    hash: [u8; 32]
+    hash: [u8; 32],
 }
 
 impl Default for IonicHash {
     fn default() -> Self {
-        Self { hash: [0u8;32]}
+        Self { hash: [0u8; 32] }
     }
 }
 
 impl Into<[u8; 32]> for IonicHash {
     fn into(self) -> [u8; 32] {
-       self.hash
+        self.hash
     }
 }
 
@@ -81,13 +82,15 @@ impl ToBytes for IonicHash {
 
 impl From<blake3::Hash> for IonicHash {
     fn from(value: blake3::Hash) -> Self {
-        Self { hash: value.as_bytes().to_owned() }
+        Self {
+            hash: value.as_bytes().to_owned(),
+        }
     }
 }
 
-impl From<[u8;32]> for IonicHash {
-    fn from(value: [u8;32]) -> Self {
-        Self {hash: value}
+impl From<[u8; 32]> for IonicHash {
+    fn from(value: [u8; 32]) -> Self {
+        Self { hash: value }
     }
 }
 
@@ -97,21 +100,20 @@ impl AsRef<[u8]> for IonicHash {
     }
 }
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct IonicAddr {
-    addr: [u8; 32]
+    addr: [u8; 32],
 }
 
 impl Default for IonicAddr {
     fn default() -> Self {
-        Self { addr: [0u8;32]}
+        Self { addr: [0u8; 32] }
     }
 }
 
 impl Into<[u8; 32]> for IonicAddr {
     fn into(self) -> [u8; 32] {
-       self.addr
+        self.addr
     }
 }
 
@@ -121,9 +123,9 @@ impl ToBytes for IonicAddr {
     }
 }
 
-impl From<[u8;32]> for IonicAddr {
-    fn from(value: [u8;32]) -> Self {
-        Self {addr: value}
+impl From<[u8; 32]> for IonicAddr {
+    fn from(value: [u8; 32]) -> Self {
+        Self { addr: value }
     }
 }
 
@@ -142,8 +144,14 @@ impl Display for IonicAddr {
 impl TryFrom<String> for IonicAddr {
     type Error = IonicParsingError;
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        let addr = URL_SAFE_NO_PAD_INDIFFERENT.decode(value).map_err(|_| IonicParsingError::InvalidData)?;
-        Ok(Self {addr: addr[..32].try_into().map_err(|_| IonicParsingError::InvalidSize)?})
+        let addr = URL_SAFE_NO_PAD_INDIFFERENT
+            .decode(value)
+            .map_err(|_| IonicParsingError::InvalidData)?;
+        Ok(Self {
+            addr: addr[..32]
+                .try_into()
+                .map_err(|_| IonicParsingError::InvalidSize)?,
+        })
     }
 }
 
@@ -152,7 +160,9 @@ impl IonicAddr {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(IONIC_ADDR_DOMAIN);
         bytes.extend_from_slice(&pk.to_bytes());
-        Self { addr: blake3::hash(&bytes).as_bytes().to_owned()}
+        Self {
+            addr: blake3::hash(&bytes).as_bytes().to_owned(),
+        }
     }
 }
 pub type IonicTXSignature = [u8; 64];
@@ -186,7 +196,7 @@ impl Display for IonicParsingError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::InvalidSize => write!(f, "Invalid Size"),
-            Self::InvalidData => write!(f, "Invalid Data")
+            Self::InvalidData => write!(f, "Invalid Data"),
         }
     }
 }

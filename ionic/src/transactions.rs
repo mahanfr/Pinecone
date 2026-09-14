@@ -125,7 +125,7 @@ impl Transaction {
             error!("Empty Signature: The transaction has not been signed");
             return false;
         }
-        let public_key : VerifyingKey = match &self.sender_pk.try_into() {
+        let public_key: VerifyingKey = match &self.sender_pk.try_into() {
             Ok(key) => *key,
             Err(_) => {
                 error!("Invalid Sender Publick Key");

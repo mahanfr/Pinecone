@@ -6,7 +6,11 @@ use std::{
 };
 
 use crate::{
-    blockchian::Blockchain, blocks::Block, transactions::{Transaction, TransactionError}, types::{IonicAddr, IonicHash}, utils::current_timestamp
+    blockchian::Blockchain,
+    blocks::Block,
+    transactions::{Transaction, TransactionError},
+    types::{IonicAddr, IonicHash},
+    utils::current_timestamp,
 };
 
 pub const MEMPOOL_MAX_CAPACITY: usize = 16;
@@ -26,10 +30,9 @@ pub struct MempoolQueues {
     pub backlog: HashMap<IonicHash, Arc<Transaction>>,
     pub by_sender: HashMap<IonicAddr, BTreeMap<u64, IonicHash>>,
     pub priority_index: BTreeSet<PriorityIndex>,
-    pub backlog_index:  BTreeSet<PriorityIndex>,
+    pub backlog_index: BTreeSet<PriorityIndex>,
     pub index_lookup: HashMap<IonicHash, (PriorityIndex, QueueType)>,
 }
-
 
 #[derive(Debug)]
 pub struct Mempool {
@@ -63,6 +66,7 @@ impl Mempool {
         tx: &Transaction,
         blockchain: &Blockchain,
     ) -> Result<(), MempoolError> {
+        // TODO: if added with same sender and same nonce update all related lists
         blockchain.state.validate_transaction(tx)?;
         let key = tx.hash();
         if self.is_transaction_already_queued(&key)? {
@@ -81,31 +85,49 @@ impl Mempool {
             Self::submit_to_pending(&mut queues, key, tx_arc)?;
             Self::update_priority_index(&mut queues, QueueType::Pending, tx, key, base_fee)?;
             Self::promote_backlog(&mut queues, &tx.sender(), base_fee)?;
-        } else if account.nonce > tx.nonce {
+        } else if account.nonce < tx.nonce {
             Self::submit_to_backlog(&mut queues, key, tx_arc)?;
             Self::update_priority_index(&mut queues, QueueType::Backlog, tx, key, base_fee)?;
+        } else {
+            return Err(MempoolError::InvalidTransactionNonce);
         }
         Ok(())
     }
 
-    pub async fn select_for_block(&self, min: usize, max: usize) -> Result<Vec<Arc<Transaction>>, MempoolError> {
+    pub async fn select_for_block(
+        &self,
+        min: usize,
+        max: usize,
+    ) -> Result<Vec<Arc<Transaction>>, MempoolError> {
         let mut transactions = Vec::with_capacity(max);
         let queues = self.queues.read()?;
         let mut already_added = HashSet::<IonicHash>::new();
         for (_, _, key) in queues.priority_index.iter().rev() {
-            if transactions.len() == max { break; }
-            if already_added.contains(key) { continue; }
+            if transactions.len() == max {
+                break;
+            }
+            if already_added.contains(key) {
+                continue;
+            }
 
-            let Some(tx) = queues.pending.get(key) else { continue; };
+            let Some(tx) = queues.pending.get(key) else {
+                continue;
+            };
 
             let sender_addr = tx.sender();
-            let Some(sender_nonce_map) = queues.by_sender.get(&sender_addr) else { continue; };
+            let Some(sender_nonce_map) = queues.by_sender.get(&sender_addr) else {
+                continue;
+            };
 
-            let mut prev_nonce : u64 = u64::MAX;
+            let mut prev_nonce: u64 = u64::MAX;
             let mut temp_added = Vec::new();
             for (nonce, inner_key) in sender_nonce_map.iter() {
-                if already_added.contains(inner_key) { continue; }
-                if !queues.pending.contains_key(inner_key) { break; }
+                if already_added.contains(inner_key) {
+                    continue;
+                }
+                if !queues.pending.contains_key(inner_key) {
+                    break;
+                }
                 if prev_nonce != u64::MAX {
                     if prev_nonce + 1 != *nonce {
                         break;
@@ -160,6 +182,8 @@ impl Mempool {
             Self::promote_backlog(&mut queues, &sender, base_fee)?;
         }
 
+        Self::rebuild_priority_index(&mut queues, base_fee).await;
+
         Ok(())
     }
 
@@ -169,7 +193,8 @@ impl Mempool {
         tx: Arc<Transaction>,
     ) -> Result<(), MempoolError> {
         queues.pending.insert(key, tx.clone());
-        queues.by_sender
+        queues
+            .by_sender
             .entry(tx.sender())
             .or_insert_with(BTreeMap::new)
             .insert(tx.nonce, key);
@@ -186,17 +211,24 @@ impl Mempool {
     ) -> Result<(), MempoolError> {
         let gas_price = tx.gas_price(base_fee)?;
         let priority_key = (gas_price, tx.timestamp, key);
-        queues.priority_index.insert(priority_key);
+        match queue_type {
+            QueueType::Pending => queues.priority_index.insert(priority_key),
+            QueueType::Backlog => queues.backlog_index.insert(priority_key),
+        };
         queues.index_lookup.insert(key, (priority_key, queue_type));
         Ok(())
     }
 
     pub async fn rebuild_priority_index(queues: &mut MempoolQueues, base_fee: u128) {
         let mut new_priority_index = BTreeSet::<PriorityIndex>::new();
-        for (_,_, hash) in queues.priority_index.iter() {
+        for (_, _, hash) in queues.priority_index.iter() {
             if let Some(tx) = queues.pending.get(hash) {
                 if let Ok(gas_price) = tx.gas_price(base_fee) {
-                    new_priority_index.insert((gas_price, tx.timestamp, *hash));
+                    let pkey = (gas_price, tx.timestamp, *hash);
+                    new_priority_index.insert(pkey);
+                    queues
+                        .index_lookup
+                        .insert(*hash, (pkey, QueueType::Pending));
                 }
             }
         }
@@ -209,7 +241,8 @@ impl Mempool {
         tx: Arc<Transaction>,
     ) -> Result<(), MempoolError> {
         queues.backlog.insert(key, tx.clone());
-        queues.by_sender
+        queues
+            .by_sender
             .entry(tx.sender())
             .or_insert_with(BTreeMap::new)
             .insert(tx.nonce, key);
@@ -229,7 +262,11 @@ impl Mempool {
         Ok(queues.backlog.len() + queues.pending.len() >= self.capacity)
     }
 
-    fn promote_backlog(queues: &mut MempoolQueues, sender: &IonicAddr, base_fee: u128) -> Result<(), MempoolError> {
+    fn promote_backlog(
+        queues: &mut MempoolQueues,
+        sender: &IonicAddr,
+        base_fee: u128,
+    ) -> Result<(), MempoolError> {
         let nonce_map = match queues.by_sender.get(sender) {
             Some(map) => map.clone(),
             None => return Ok(()),
@@ -237,7 +274,9 @@ impl Mempool {
         let nonces: Vec<u64> = nonce_map.keys().copied().collect();
         let mut prev: u64 = u64::MAX;
         for nonce in nonces {
-            if prev != u64::MAX && prev + 1 != nonce { break; }
+            if prev != u64::MAX && prev + 1 != nonce {
+                break;
+            }
             prev = nonce;
 
             let hash = nonce_map[&nonce];
@@ -252,7 +291,8 @@ impl Mempool {
                     Some((key, _)) => {
                         queues.backlog_index.remove(key);
                         queues.priority_index.insert(*key);
-                    },
+                        queues.index_lookup.insert(hash, (*key, QueueType::Pending));
+                    }
                     None => {
                         if let Ok(effective) = tx.gas_price(base_fee) {
                             let pkey = (effective, tx.timestamp, hash);
@@ -301,12 +341,14 @@ impl Mempool {
                     QueueType::Pending => {
                         queues.priority_index.remove(&prikey);
                         queues.pending.remove(&key)
-                    },
+                    }
                     QueueType::Backlog => {
                         queues.backlog_index.remove(&prikey);
                         queues.backlog.remove(&key)
                     }
-                }) else {continue};
+                }) else {
+                    continue;
+                };
                 let sender = evicted_tx.sender();
                 if let Some(sender_map) = queues.by_sender.get_mut(&sender) {
                     sender_map.remove(&evicted_tx.nonce);
@@ -322,6 +364,7 @@ impl Mempool {
 
 #[derive(Debug)]
 pub enum MempoolError {
+    InvalidTransactionNonce,
     InvalidTransaction(TransactionError),
     TransactionAlreadyExists,
     MempoolFull,
@@ -345,6 +388,9 @@ impl<T> From<PoisonError<T>> for MempoolError {
 impl Display for MempoolError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::InvalidTransactionNonce => {
+                write!(f, "Transaction nonce smaller than the account nonce")
+            }
             Self::InvalidTransaction(t) => write!(f, "Mempool Error => {t}"),
             Self::InternalError => write!(f, "Internal Error: can not access mempool queues"),
             Self::MempoolFull => write!(
@@ -359,7 +405,10 @@ impl Display for MempoolError {
                 f,
                 "Not Enough Transactions: Pending Transactions dose not reach your desierd minimum"
             ),
-            Self::MempoolOutOfSync => write!(f, "Mempool out of sync: Key pointing to transactions that dose not exists"),
+            Self::MempoolOutOfSync => write!(
+                f,
+                "Mempool out of sync: Key pointing to transactions that dose not exists"
+            ),
         }
     }
 }

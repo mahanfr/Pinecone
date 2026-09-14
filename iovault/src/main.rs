@@ -48,9 +48,7 @@ fn main() {
             }
             WalletCommands::Send { to, amount } => {
                 let recepient = IonicAddr::try_from(to).unwrap();
-                let tx = wallet
-                    .create_tx(amount, recepient)
-                    .unwrap();
+                let tx = wallet.create_tx(amount, recepient).unwrap();
                 println!("{}", tx);
                 wallet.submit();
             }

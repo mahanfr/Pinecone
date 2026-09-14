@@ -1,6 +1,11 @@
 use std::fmt::Display;
 
-use crate::{blocks::Block, state::IonicState, transactions::TransactionError, types::{IonicHash, IonicPK}};
+use crate::{
+    blocks::Block,
+    state::IonicState,
+    transactions::TransactionError,
+    types::{IonicHash, IonicPK},
+};
 
 #[derive(Debug)]
 pub struct Blockchain {
@@ -57,7 +62,7 @@ impl Blockchain {
     pub fn base_fee(&self) -> u128 {
         match self.head() {
             Some(head) => head.next_base_fee(),
-            None => Self::genesis(self.id).next_base_fee()
+            None => Self::genesis(self.id).next_base_fee(),
         }
     }
 }
