@@ -67,20 +67,20 @@ impl Mempool {
         blockchain: &Blockchain,
     ) -> Result<(), MempoolError> {
         blockchain.state.validate_transaction(tx)?;
+        let mut queues = self.queues.write()?;
+
         let key = tx.hash();
-        if self.is_transaction_already_queued(&key)? {
+        if Self::is_transaction_already_queued(&queues, &key) {
             return Err(MempoolError::TransactionAlreadyExists);
         }
         let base_fee = blockchain.base_fee();
-        if self.should_evict()? {
-            self.evict_low_priority(tx, base_fee).await?;
+
+        if self.should_evict(queues.backlog.len(), queues.pending.len()) {
+            Self::evict_low_priority(&mut queues, tx, base_fee).await?;
         }
+
         let account = blockchain.state.get_account(&tx.sender())?;
-
         let tx_arc = Arc::new(tx.clone());
-
-        let mut queues = self.queues.write()?;
-
         // if tx with same sender and nonce exists in the queues remove it first
         if let Some(nonce_map) = queues.by_sender.get(&tx.sender()) {
             if let Some(hash) = nonce_map.get(&tx.nonce) {
@@ -92,7 +92,7 @@ impl Mempool {
         if account.nonce == tx.nonce {
             Self::submit_to_pending(&mut queues, key, tx_arc)?;
             Self::update_priority_index(&mut queues, QueueType::Pending, tx, key, base_fee)?;
-            Self::promote_backlog(&mut queues, &tx.sender(), base_fee)?;
+            Self::promote_backlog(&mut queues, &tx.sender(), account.nonce, base_fee)?;
         } else if account.nonce < tx.nonce {
             Self::submit_to_backlog(&mut queues, key, tx_arc)?;
             Self::update_priority_index(&mut queues, QueueType::Backlog, tx, key, base_fee)?;
@@ -130,16 +130,17 @@ impl Mempool {
             let mut prev_nonce: u64 = u64::MAX;
             let mut temp_added = Vec::new();
             for (nonce, inner_key) in sender_nonce_map.iter() {
+                if prev_nonce != u64::MAX {
+                    if prev_nonce + 1 != *nonce {
+                        break;
+                    }
+                }
+                prev_nonce = *nonce;
                 if already_added.contains(inner_key) {
                     continue;
                 }
                 if !queues.pending.contains_key(inner_key) {
                     break;
-                }
-                if prev_nonce != u64::MAX {
-                    if prev_nonce + 1 != *nonce {
-                        break;
-                    }
                 }
                 if transactions.len() + temp_added.len() + 1 <= max {
                     temp_added.push(*inner_key);
@@ -147,7 +148,6 @@ impl Mempool {
                 } else {
                     break;
                 }
-                prev_nonce = *nonce;
             }
             for tx_key in temp_added.iter() {
                 let Some(tx) = queues.pending.get(tx_key) else {
@@ -163,7 +163,11 @@ impl Mempool {
         Ok(transactions)
     }
 
-    pub async fn update_after_block(&self, block: Block) -> Result<(), MempoolError> {
+    pub async fn update_after_block(
+        &self,
+        block: Block,
+        blockchain: &Blockchain,
+    ) -> Result<(), MempoolError> {
         let mut queues = self.queues.write()?;
 
         let mut affected_senders: HashSet<IonicAddr> = HashSet::new();
@@ -187,7 +191,9 @@ impl Mempool {
 
         let base_fee = block.next_base_fee();
         for sender in affected_senders {
-            Self::promote_backlog(&mut queues, &sender, base_fee)?;
+            if let Ok(account) = blockchain.state.get_account(&sender) {
+                Self::promote_backlog(&mut queues, &sender, account.nonce, base_fee)?;
+            }
         }
 
         Self::rebuild_priority_index(&mut queues, base_fee).await;
@@ -197,6 +203,8 @@ impl Mempool {
 
     async fn rebuild_priority_index(queues: &mut MempoolQueues, base_fee: u128) {
         let mut new_priority_index = BTreeSet::<PriorityIndex>::new();
+        let mut new_backlog_index = BTreeSet::<PriorityIndex>::new();
+        let mut to_remove = Vec::new();
         for (_, _, hash) in queues.priority_index.iter() {
             if let Some(tx) = queues.pending.get(hash) {
                 if let Ok(gas_price) = tx.gas_price(base_fee) {
@@ -205,23 +213,45 @@ impl Mempool {
                     queues
                         .index_lookup
                         .insert(*hash, (pkey, QueueType::Pending));
+                } else {
+                    to_remove.push(*hash);
+                }
+            }
+        }
+        for (_, _, hash) in queues.backlog_index.iter() {
+            if let Some(tx) = queues.backlog.get(hash) {
+                if let Ok(gas_price) = tx.gas_price(base_fee) {
+                    let pkey = (gas_price, tx.timestamp, *hash);
+                    new_backlog_index.insert(pkey);
+                    queues
+                        .index_lookup
+                        .insert(*hash, (pkey, QueueType::Backlog));
+                } else {
+                    to_remove.push(*hash);
                 }
             }
         }
         queues.priority_index = new_priority_index;
+        queues.backlog_index = new_backlog_index;
+        for hash in to_remove {
+            let _ = Self::remove_tx(queues, hash).await;
+        }
     }
 
-    pub async fn remove_tx(queues: &mut MempoolQueues, hash: IonicHash) -> Result<Arc<Transaction>, MempoolError> {
+    pub async fn remove_tx(
+        queues: &mut MempoolQueues,
+        hash: IonicHash,
+    ) -> Result<Arc<Transaction>, MempoolError> {
         if let Some((pkey, q_type)) = queues.index_lookup.get(&hash) {
             let tx_arc = match q_type {
                 QueueType::Pending => {
                     queues.priority_index.remove(pkey);
                     queues.pending.remove(&hash)
-                },
+                }
                 QueueType::Backlog => {
                     queues.backlog_index.remove(pkey);
                     queues.backlog.remove(&hash)
-                },
+                }
             };
             let tx = match tx_arc {
                 Some(tx) => tx,
@@ -235,7 +265,6 @@ impl Mempool {
             return Err(MempoolError::TransactionNotExists);
         }
     }
-
 
     fn submit_to_pending(
         queues: &mut MempoolQueues,
@@ -284,21 +313,18 @@ impl Mempool {
         Ok(())
     }
 
-    fn is_transaction_already_queued(&self, key: &IonicHash) -> Result<bool, MempoolError> {
-        let queues = self.queues.read()?;
-
-        Ok(queues.backlog.contains_key(key) || queues.pending.contains_key(key))
+    fn is_transaction_already_queued(queues: &MempoolQueues, key: &IonicHash) -> bool {
+        queues.backlog.contains_key(key) || queues.pending.contains_key(key)
     }
 
-    fn should_evict(&self) -> Result<bool, MempoolError> {
-        let queues = self.queues.read()?;
-
-        Ok(queues.backlog.len() + queues.pending.len() >= self.capacity)
+    fn should_evict(&self, backlog_len: usize, pending_len: usize) -> bool {
+        backlog_len + pending_len >= self.capacity
     }
 
     fn promote_backlog(
         queues: &mut MempoolQueues,
         sender: &IonicAddr,
+        account_nonce: u64,
         base_fee: u128,
     ) -> Result<(), MempoolError> {
         let nonce_map = match queues.by_sender.get(sender) {
@@ -308,7 +334,11 @@ impl Mempool {
         let nonces: Vec<u64> = nonce_map.keys().copied().collect();
         let mut prev: u64 = u64::MAX;
         for nonce in nonces {
-            if prev != u64::MAX && prev + 1 != nonce {
+            if prev != u64::MAX {
+                if nonce < account_nonce {
+                    break;
+                }
+            } else if prev + 1 != nonce {
                 break;
             }
             prev = nonce;
@@ -341,11 +371,10 @@ impl Mempool {
     }
 
     async fn evict_low_priority(
-        &self,
+        queues: &mut MempoolQueues,
         tx: &Transaction,
         base_fee: u128,
     ) -> Result<(), MempoolError> {
-        let mut queues = self.queues.write()?;
         let current_time = current_timestamp();
         let expected_price = tx.gas_price(base_fee)?;
 
@@ -353,16 +382,12 @@ impl Mempool {
         for (price, time, key) in queues.backlog_index.iter() {
             if price < &expected_price || current_time - time > MEMPOOL_EVICTION_TIMEOUT {
                 removed_items.push(key.clone());
-            } else {
-                break;
             }
         }
         if removed_items.is_empty() {
             for (price, time, key) in queues.priority_index.iter() {
                 if price < &expected_price || current_time - time > MEMPOOL_EVICTION_TIMEOUT {
                     removed_items.push(key.clone());
-                } else {
-                    break;
                 }
             }
         }
@@ -370,27 +395,7 @@ impl Mempool {
             return Err(MempoolError::MempoolFull);
         }
         for key in removed_items.iter() {
-            if let Some((prikey, queue_type)) = queues.index_lookup.remove(key) {
-                let Some(evicted_tx) = (match queue_type {
-                    QueueType::Pending => {
-                        queues.priority_index.remove(&prikey);
-                        queues.pending.remove(&key)
-                    }
-                    QueueType::Backlog => {
-                        queues.backlog_index.remove(&prikey);
-                        queues.backlog.remove(&key)
-                    }
-                }) else {
-                    continue;
-                };
-                let sender = evicted_tx.sender();
-                if let Some(sender_map) = queues.by_sender.get_mut(&sender) {
-                    sender_map.remove(&evicted_tx.nonce);
-                    if sender_map.is_empty() {
-                        queues.by_sender.remove(&evicted_tx.sender());
-                    }
-                }
-            }
+            let _ = Self::remove_tx(queues, key.to_owned()).await;
         }
         Ok(())
     }
