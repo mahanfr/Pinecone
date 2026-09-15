@@ -66,7 +66,6 @@ impl Mempool {
         tx: &Transaction,
         blockchain: &Blockchain,
     ) -> Result<(), MempoolError> {
-        // TODO: if added with same sender and same nonce update all related lists
         blockchain.state.validate_transaction(tx)?;
         let key = tx.hash();
         if self.is_transaction_already_queued(&key)? {
@@ -81,6 +80,15 @@ impl Mempool {
         let tx_arc = Arc::new(tx.clone());
 
         let mut queues = self.queues.write()?;
+
+        // if tx with same sender and nonce exists in the queues remove it first
+        if let Some(nonce_map) = queues.by_sender.get(&tx.sender()) {
+            if let Some(hash) = nonce_map.get(&tx.nonce) {
+                let hash_clone = hash.clone();
+                let _ = Self::remove_tx(&mut queues, hash_clone).await;
+            }
+        }
+
         if account.nonce == tx.nonce {
             Self::submit_to_pending(&mut queues, key, tx_arc)?;
             Self::update_priority_index(&mut queues, QueueType::Pending, tx, key, base_fee)?;
@@ -187,6 +195,48 @@ impl Mempool {
         Ok(())
     }
 
+    async fn rebuild_priority_index(queues: &mut MempoolQueues, base_fee: u128) {
+        let mut new_priority_index = BTreeSet::<PriorityIndex>::new();
+        for (_, _, hash) in queues.priority_index.iter() {
+            if let Some(tx) = queues.pending.get(hash) {
+                if let Ok(gas_price) = tx.gas_price(base_fee) {
+                    let pkey = (gas_price, tx.timestamp, *hash);
+                    new_priority_index.insert(pkey);
+                    queues
+                        .index_lookup
+                        .insert(*hash, (pkey, QueueType::Pending));
+                }
+            }
+        }
+        queues.priority_index = new_priority_index;
+    }
+
+    pub async fn remove_tx(queues: &mut MempoolQueues, hash: IonicHash) -> Result<Arc<Transaction>, MempoolError> {
+        if let Some((pkey, q_type)) = queues.index_lookup.get(&hash) {
+            let tx_arc = match q_type {
+                QueueType::Pending => {
+                    queues.priority_index.remove(pkey);
+                    queues.pending.remove(&hash)
+                },
+                QueueType::Backlog => {
+                    queues.backlog_index.remove(pkey);
+                    queues.backlog.remove(&hash)
+                },
+            };
+            let tx = match tx_arc {
+                Some(tx) => tx,
+                None => return Err(MempoolError::TransactionNotExists),
+            };
+            if let Some(nonce_map) = queues.by_sender.get_mut(&tx.sender()) {
+                nonce_map.remove(&tx.nonce);
+            }
+            return Ok(tx);
+        } else {
+            return Err(MempoolError::TransactionNotExists);
+        }
+    }
+
+
     fn submit_to_pending(
         queues: &mut MempoolQueues,
         key: IonicHash,
@@ -217,22 +267,6 @@ impl Mempool {
         };
         queues.index_lookup.insert(key, (priority_key, queue_type));
         Ok(())
-    }
-
-    pub async fn rebuild_priority_index(queues: &mut MempoolQueues, base_fee: u128) {
-        let mut new_priority_index = BTreeSet::<PriorityIndex>::new();
-        for (_, _, hash) in queues.priority_index.iter() {
-            if let Some(tx) = queues.pending.get(hash) {
-                if let Ok(gas_price) = tx.gas_price(base_fee) {
-                    let pkey = (gas_price, tx.timestamp, *hash);
-                    new_priority_index.insert(pkey);
-                    queues
-                        .index_lookup
-                        .insert(*hash, (pkey, QueueType::Pending));
-                }
-            }
-        }
-        queues.priority_index = new_priority_index;
     }
 
     fn submit_to_backlog(
@@ -371,6 +405,7 @@ pub enum MempoolError {
     NotEnoughTransactions,
     InternalError,
     MempoolOutOfSync,
+    TransactionNotExists,
 }
 
 impl From<TransactionError> for MempoolError {
@@ -388,6 +423,9 @@ impl<T> From<PoisonError<T>> for MempoolError {
 impl Display for MempoolError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::TransactionNotExists => {
+                write!(f, "Transaction dose not exists")
+            }
             Self::InvalidTransactionNonce => {
                 write!(f, "Transaction nonce smaller than the account nonce")
             }
