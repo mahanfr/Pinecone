@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD_INDIFFERENT};
 use ed25519_dalek::VerifyingKey;
@@ -7,9 +7,21 @@ use crate::utils::ToBytes;
 
 const IONIC_ADDR_DOMAIN: &[u8] = b"IONIC_ADDR";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct IonicPK {
     pk: [u8; 32],
+}
+
+impl Display for IonicPK {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", URL_SAFE_NO_PAD_INDIFFERENT.encode(self.pk))
+    }
+}
+
+impl Debug for IonicPK {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", URL_SAFE_NO_PAD_INDIFFERENT.encode(self.pk))
+    }
 }
 
 impl Default for IonicPK {
@@ -57,9 +69,21 @@ impl AsRef<[u8]> for IonicPK {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct IonicHash {
     hash: [u8; 32],
+}
+
+impl Display for IonicHash {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", URL_SAFE_NO_PAD_INDIFFERENT.encode(self.hash))
+    }
+}
+
+impl Debug for IonicHash {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", URL_SAFE_NO_PAD_INDIFFERENT.encode(self.hash))
+    }
 }
 
 impl Default for IonicHash {

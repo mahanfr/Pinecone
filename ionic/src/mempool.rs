@@ -13,7 +13,7 @@ use crate::{
     utils::current_timestamp,
 };
 
-pub const MEMPOOL_MAX_CAPACITY: usize = 16;
+pub const MEMPOOL_MAX_CAPACITY: usize = u16::MAX as usize;
 pub const MEMPOOL_EVICTION_TIMEOUT: u64 = 3600;
 
 type PriorityIndex = (u128, u64, IonicHash);
@@ -58,6 +58,29 @@ impl Mempool {
                 index_lookup: HashMap::new(),
             }),
             capacity: MEMPOOL_MAX_CAPACITY,
+        }
+    }
+
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            capacity,
+            ..Default::default()
+        }
+    }
+
+    pub fn contains(&self, tx_hash: &IonicHash) -> bool {
+        if let Ok(queues) = self.queues.read() {
+            return queues.index_lookup.contains_key(tx_hash);
+        } else {
+            return false;
+        }
+    }
+
+    pub fn pending_len(&self) -> usize {
+        if let Ok(queues) = self.queues.read() {
+            return queues.pending.len();
+        } else {
+            return 0;
         }
     }
 
@@ -242,14 +265,14 @@ impl Mempool {
         queues: &mut MempoolQueues,
         hash: IonicHash,
     ) -> Result<Arc<Transaction>, MempoolError> {
-        if let Some((pkey, q_type)) = queues.index_lookup.get(&hash) {
+        if let Some((pkey, q_type)) = queues.index_lookup.remove(&hash) {
             let tx_arc = match q_type {
                 QueueType::Pending => {
-                    queues.priority_index.remove(pkey);
+                    queues.priority_index.remove(&pkey);
                     queues.pending.remove(&hash)
                 }
                 QueueType::Backlog => {
-                    queues.backlog_index.remove(pkey);
+                    queues.backlog_index.remove(&pkey);
                     queues.backlog.remove(&hash)
                 }
             };
@@ -334,7 +357,7 @@ impl Mempool {
         let nonces: Vec<u64> = nonce_map.keys().copied().collect();
         let mut prev: u64 = u64::MAX;
         for nonce in nonces {
-            if prev != u64::MAX {
+            if prev == u64::MAX {
                 if nonce < account_nonce {
                     break;
                 }
@@ -379,14 +402,23 @@ impl Mempool {
         let expected_price = tx.gas_price(base_fee)?;
 
         let mut removed_items = Vec::new();
+        // Evict the tx(s) with only the lowest price and all the timedout ones
+        let mut last_evicted_price = 0;
         for (price, time, key) in queues.backlog_index.iter() {
-            if price < &expected_price || current_time - time > MEMPOOL_EVICTION_TIMEOUT {
+            if price < &expected_price && (&last_evicted_price < price) {
+                removed_items.push(key.clone());
+                last_evicted_price = *price;
+            } else if current_time - time > MEMPOOL_EVICTION_TIMEOUT {
                 removed_items.push(key.clone());
             }
         }
         if removed_items.is_empty() {
+            last_evicted_price = 0;
             for (price, time, key) in queues.priority_index.iter() {
-                if price < &expected_price || current_time - time > MEMPOOL_EVICTION_TIMEOUT {
+                if price < &expected_price && (&last_evicted_price < price) {
+                    removed_items.push(key.clone());
+                    last_evicted_price = *price;
+                } else if current_time - time > MEMPOOL_EVICTION_TIMEOUT {
                     removed_items.push(key.clone());
                 }
             }
@@ -457,3 +489,135 @@ impl Display for MempoolError {
 }
 
 impl Error for MempoolError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    mod test_support {
+        use super::*;
+        use crate::keygen::generate_key_pair;
+
+        pub fn tx(nonce: u64, max_fee: u128) -> Transaction {
+            let (sk, pk) = generate_key_pair();
+            Transaction::new_builder(0, nonce, pk.into(), None, 100)
+                .with_fees(10000, max_fee, max_fee + 100)
+                .sign(&sk)
+                .build()
+        }
+
+        pub fn tx_old_timestamp(nonce: u64, max_fee: u128) -> Transaction {
+            let (sk, pk) = generate_key_pair();
+            let mut tx = Transaction {
+                chain_id: 0,
+                nonce,
+                sender_pk: pk.into(),
+                recepient: None,
+                value: 100,
+                gas_limit: 10000,
+                max_fee,
+                max_priority_fee: max_fee + 100,
+                timestamp: current_timestamp() - MEMPOOL_EVICTION_TIMEOUT - 10000,
+                ..Default::default()
+            };
+            tx.sign(&sk);
+            tx
+        }
+    }
+    use test_support::*;
+
+    #[tokio::test]
+    async fn rebuild_priority_index_drops_tx_that_errors_under_new_base_fee() {
+        let max_fee: u128 = 100;
+        let t = Arc::new(tx(0, max_fee));
+        let sender = t.sender();
+        let key = t.hash();
+
+        let mut queues = MempoolQueues {
+            pending: HashMap::new(),
+            backlog: HashMap::new(),
+            by_sender: HashMap::new(),
+            priority_index: BTreeSet::new(),
+            backlog_index: BTreeSet::new(),
+            index_lookup: HashMap::new(),
+        };
+
+        let low_base_fee: u128 = 10;
+        let price = t
+            .gas_price(low_base_fee)
+            .expect("should price fine at low base fee");
+        let pkey: PriorityIndex = (price, t.timestamp, key);
+        queues.pending.insert(key, t.clone());
+        queues
+            .by_sender
+            .entry(sender)
+            .or_insert_with(BTreeMap::new)
+            .insert(t.nonce, key);
+        queues.priority_index.insert(pkey);
+        queues.index_lookup.insert(key, (pkey, QueueType::Pending));
+
+        let high_base_fee: u128 = max_fee + 1;
+        assert!(
+            t.gas_price(high_base_fee).is_err(),
+            "test setup assumption violated"
+        );
+
+        Mempool::rebuild_priority_index(&mut queues, high_base_fee).await;
+
+        assert!(
+            !queues.pending.contains_key(&key),
+            "tx should still be tracked as pending"
+        );
+        assert!(
+            queues.priority_index.is_empty(),
+            "BUG: tx silently disappeared from priority_index instead of \
+             being explicitly evicted/removed"
+        );
+        assert!(
+            !queues.index_lookup.contains_key(&key),
+            "index_lookup still references the ghost transaction"
+        );
+    }
+
+    #[tokio::test]
+    async fn evict_low_priority_misses_timed_out_high_price_entries() {
+        let cheap = tx(0, 5);
+        let stale = tx_old_timestamp(0, 50);
+        let incoming = tx(0, 20);
+        let sender_cheap = cheap.sender();
+        let sender_stale = stale.sender();
+        let sender_new = incoming.sender();
+
+        let mempool = Mempool::with_capacity(6);
+
+        let mut blockchain = Blockchain::new(0);
+        blockchain.new_account(sender_cheap, 1_000_000, 0);
+        blockchain.new_account(sender_stale, 1_000_000, 0);
+        blockchain.new_account(sender_new, 1_000_000, 0);
+        for _ in 0..4 {
+            let tx = tx(0, 30);
+            blockchain.new_account(tx.sender(), 1_000_000, 0);
+            mempool.submit_transaction(&tx, &blockchain).await.unwrap();
+        }
+        mempool
+            .submit_transaction(&cheap, &blockchain)
+            .await
+            .unwrap();
+        mempool
+            .submit_transaction(&stale, &blockchain)
+            .await
+            .unwrap();
+        assert_eq!(
+            mempool.pending_len(),
+            6,
+            "Some of the transactions failed to get added"
+        );
+        // Test
+        mempool
+            .submit_transaction(&incoming, &blockchain)
+            .await
+            .unwrap();
+
+        assert!(!mempool.contains(&stale.hash()));
+    }
+}

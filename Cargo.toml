@@ -9,3 +9,4 @@ rand = "0.10"
 blake3 = "1.8"
 blst = "0.3"
 ed25519-dalek = { version = "3", features = ["rand_core"] }
+tokio = { version = "1.53.1", features = ["full"] }

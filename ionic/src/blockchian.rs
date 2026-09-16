@@ -1,10 +1,11 @@
 use std::fmt::Display;
 
 use crate::{
+    accounts::Account,
     blocks::Block,
     state::IonicState,
     transactions::TransactionError,
-    types::{IonicHash, IonicPK},
+    types::{IonicAddr, IonicHash, IonicPK},
 };
 
 #[derive(Debug)]
@@ -21,6 +22,16 @@ impl Blockchain {
             chain: vec![Self::genesis(chain_id)],
             state: IonicState::new(chain_id),
         }
+    }
+
+    // NOTE: This is for testing remove for production
+    pub fn new_account(&mut self, addr: IonicAddr, balance: u128, nonce: u64) {
+        let account = Account {
+            balance,
+            nonce,
+            code: Vec::new(),
+        };
+        self.state.add_account(addr, account).unwrap();
     }
 
     pub fn verify_block(&self, block: &Block) -> Result<(), BlockchainError> {
@@ -51,7 +62,7 @@ impl Blockchain {
             IonicHash::default(),
             transactions,
         );
-        block.header.base_fee = 100;
+        block.header.base_fee = 1;
         block
     }
 

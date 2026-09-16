@@ -2,7 +2,7 @@ use crate::{
     accounts::Account,
     transactions::{Transaction, TransactionError},
     types::IonicAddr,
-    verkletrie::SparseVerkleTrie,
+    verkletrie::{SparseVerkleTrie, TrieError},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -22,15 +22,20 @@ pub struct TxExecutionResult {
 #[derive(Debug)]
 pub struct IonicState {
     pub chain_id: u64,
-    pub accounts: Option<SparseVerkleTrie<Account>>,
+    pub accounts: SparseVerkleTrie<Account>,
 }
 
 impl IonicState {
     pub fn new(chain_id: u64) -> Self {
         Self {
             chain_id,
-            accounts: None,
+            accounts: SparseVerkleTrie::new(),
         }
+    }
+
+    pub fn add_account(&mut self, addr: IonicAddr, account: Account) -> Result<(), TrieError> {
+        self.accounts.insert(addr.as_ref(), account)?;
+        Ok(())
     }
 
     pub fn validate_transaction(&self, tx: &Transaction) -> Result<(), TransactionError> {
@@ -47,10 +52,7 @@ impl IonicState {
     }
 
     pub fn get_account(&self, addr: &IonicAddr) -> Result<&Account, TransactionError> {
-        if self.accounts.is_none() {
-            return Err(TransactionError::UnavailableState);
-        }
-        let account = match self.accounts.as_ref().unwrap().get(addr.as_ref()) {
+        let account = match self.accounts.get(addr.as_ref()) {
             Ok(op_ac) => match op_ac {
                 Some(ac) => ac,
                 None => return Err(TransactionError::InvalidAccount),
@@ -86,11 +88,7 @@ impl IonicState {
         };
         // Apply
         // TODO: Verkletrie should have a buffer qeueue that then applies the changes.
-        self.accounts
-            .as_mut()
-            .unwrap()
-            .insert(sender_addr.as_ref(), account)
-            .unwrap();
+        self.accounts.insert(sender_addr.as_ref(), account).unwrap();
         Ok(TxExecutionResult {
             status: TxExecutionStatus::Success,
             validation_tip,
@@ -99,7 +97,7 @@ impl IonicState {
     }
 
     fn perform_precheck(account: &Account, tx: &Transaction) -> Result<(), TransactionError> {
-        if account.nonce <= tx.nonce {
+        if account.nonce > tx.nonce {
             return Err(TransactionError::InvalidNonce);
         }
         if account.balance < tx.value + (tx.gas_limit as u128 * tx.max_fee) {
