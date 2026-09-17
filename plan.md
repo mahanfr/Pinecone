@@ -5,15 +5,15 @@
 [X] Non-Secure VerkleTrie implementation
 [X] Transaction signing and verification
 [X] Genesis block
-[ ] State model
+[X] State model
+[X] Mempool
+[X] Block/transaction propagation
 [ ] Virtual machine / smart contracts
+[ ] Chain validation and fork choice
 [ ] Consensus
 [ ] Peer-to-peer networking
-[ ] Block/transaction propagation
-[ ] Chain validation and fork choice
 [ ] Persistent blockchain storage
 [ ] State synchronization
-[ ] Mempool
 [ ] Fees / gas
 [ ] DoS protection
 [ ] Encryption / private data mechanisms
