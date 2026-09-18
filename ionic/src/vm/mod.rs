@@ -24,6 +24,16 @@ impl VirtualMachine {
         return Ok(imm);
     }
 
+    fn take_pc(code: &[u8], cur: &mut usize) -> Result<u64, VMExecutionError> {
+        if *cur + 8 > code.len() {
+            return Err(VMExecutionError::InvalidSize);
+        }
+        let arr: [u8; 8] = code[*cur..*cur + 8].try_into().unwrap();
+        let imm = u64::from_le_bytes(arr);
+        *cur += 8;
+        return Ok(imm);
+    }
+
     pub fn parse(code: Vec<u8>) -> Result<Vec<IonicInstr>, VMExecutionError> {
         let mut instrs: Vec<IonicInstr> = Vec::new();
         let mut cur = 0;
@@ -33,6 +43,12 @@ impl VirtualMachine {
             match mnemonic {
                 IonicInstr::PUSH(_) => {
                     instrs.push(IonicInstr::PUSH(Self::take_imm(&code, &mut cur)?))
+                }
+                IonicInstr::JUMP(_) => {
+                    instrs.push(IonicInstr::JUMP(Self::take_pc(&code, &mut cur)?))
+                }
+                IonicInstr::JUMPC(_) => {
+                    instrs.push(IonicInstr::JUMPC(Self::take_pc(&code, &mut cur)?))
                 }
                 _ => instrs.push(mnemonic),
             }
@@ -149,13 +165,29 @@ impl VirtualMachine {
                     self.stack.push((pc as u64).into());
                     gas += 1;
                 }
+                IonicInstr::ADDMOD
+                | IonicInstr::MULMOD => {
+                    let Some(c) = self.stack.pop() else {
+                        return Err(VMExecutionError::StackUnderflow(pc, instr));
+                    };
+                    let Some(b) = self.stack.pop() else {
+                        return Err(VMExecutionError::StackUnderflow(pc, instr));
+                    };
+                    let Some(a) = self.stack.pop() else {
+                        return Err(VMExecutionError::StackUnderflow(pc, instr));
+                    };
+                    let result = Self::eval_ternary(pc, instr, a, b, c)?;
+                    self.stack.push(result);
+                    gas += 2;
+                }
                 IonicInstr::INC
                 | IonicInstr::DEC
                 | IonicInstr::NEG
                 | IonicInstr::EXP
                 | IonicInstr::ABS
                 | IonicInstr::SABS
-                | IonicInstr::NOT => {
+                | IonicInstr::NOT
+                | IonicInstr::ISZERO => {
                     let Some(a) = self.stack.pop() else {
                         return Err(VMExecutionError::StackUnderflow(pc, instr));
                     };
@@ -222,11 +254,33 @@ impl VirtualMachine {
                     self.stack.push(result);
                     gas += 1;
                 }
-                _ => unimplemented!("Instruction {} is not implemented yet", instr),
+                IonicInstr::POPCOUNT => {
+                    let Some(a) = self.stack.pop() else {
+                        return Err(VMExecutionError::StackUnderflow(pc, instr));
+                    };
+                    self.stack.push(a.count_ones().as_u256());
+                    gas += 1;
+                }
+                IonicInstr::MLOAD => todo!("Implement heap first"),
+                IonicInstr::MSTORE => todo!("Implement heap first"),
+                IonicInstr::EXT => unimplemented!("If we reached 256 instructions use this"),
             }
             pc += 1;
         }
         Ok(gas)
+    }
+
+    fn eval_ternary(pc: usize, op: IonicInstr, a: u256, b: u256, c: u256) -> Result<u256, VMExecutionError> {
+        use IonicInstr::*;
+        let output = match op {
+            ADDMOD => a.checked_add(b).map(|x| x.checked_rem(c)),
+            MULMOD => a.checked_mul(b).map(|x| x.checked_rem(c)),
+            _ => unreachable!("All operaions are covered"),
+        };
+        let Some(Some(result)) = output else {
+            return Err(VMExecutionError::TernaryOverflow(pc, op, a, b, c));
+        };
+        return Ok(result);
     }
 
     fn eval_unary(pc: usize, op: IonicInstr, a: u256) -> Result<u256, VMExecutionError> {

@@ -191,8 +191,8 @@ impl IonicInstr {
 impl Display for IonicInstr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::STOP => write!(f, "RET"),
-            Self::NOP => write!(f, "HLT"),
+            Self::STOP => write!(f, "STOP"),
+            Self::NOP => write!(f, "NOP"),
             Self::JUMP(pc) => write!(f, "JUMP ${pc}"),
             Self::JUMPC(pc) => write!(f, "JUMPC ${pc}"),
             Self::PC => write!(f, "PC"),
