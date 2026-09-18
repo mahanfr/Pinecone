@@ -13,6 +13,7 @@ blake3 = {workspace = true}
 blst = {workspace = true}
 ed25519-dalek = {workspace = true}
 tokio = {workspace = true}
+ethnum = {workspace = true} 
 ark-std = "0.6"
 ark-bls12-381 = "0.6"
 ark-ff = "0.6"

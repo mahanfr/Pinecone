@@ -1,13 +1,15 @@
 use std::fmt::Display;
 
+use ethnum::{AsU256, u256};
+
 use crate::vm::VMExecutionError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IonicInstr {
-    RET,
-    HLT,
-    JUMP,
-    JUMPC,
+    STOP,
+    NOP,
+    JUMP(u64),
+    JUMPC(u64),
     PC,
     GAS,
     INVALID,
@@ -50,7 +52,7 @@ pub enum IonicInstr {
     POPCOUNT,
 
     POP,
-    PUSH(u128),
+    PUSH(u256),
     DUP,
     SWAP,
     ROT,
@@ -65,10 +67,10 @@ pub enum IonicInstr {
 impl IonicInstr {
     pub fn to_bytes(&self) -> Vec<u8> {
         match self {
-            Self::RET => vec![0x00],
-            Self::HLT => vec![0x01],
-            Self::JUMP => vec![0x02],
-            Self::JUMPC => vec![0x03],
+            Self::STOP => vec![0x00],
+            Self::NOP => vec![0x01],
+            Self::JUMP(_) => vec![0x02],
+            Self::JUMPC(_) => vec![0x03],
             Self::PC => vec![0x04],
             Self::GAS => vec![0x05],
             Self::INVALID => vec![0x06],
@@ -124,10 +126,10 @@ impl IonicInstr {
 
     pub fn from_byte(byte: u8) -> Result<Self, VMExecutionError> {
         match byte {
-            0x00 => Ok(Self::RET),
-            0x01 => Ok(Self::HLT),
-            0x02 => Ok(Self::JUMP),
-            0x03 => Ok(Self::JUMPC),
+            0x00 => Ok(Self::STOP),
+            0x01 => Ok(Self::NOP),
+            0x02 => Ok(Self::JUMP(0)),
+            0x03 => Ok(Self::JUMPC(0)),
             0x04 => Ok(Self::PC),
             0x05 => Ok(Self::GAS),
             0x06 => Ok(Self::INVALID),
@@ -166,7 +168,7 @@ impl IonicInstr {
             0x3d => Ok(Self::BIT),
             0x3e => Ok(Self::POPCOUNT),
             0x50 => Ok(Self::POP),
-            0x51 => Ok(Self::PUSH(0)),
+            0x51 => Ok(Self::PUSH(0.as_u256())),
             0x52 => Ok(Self::DUP),
             0x53 => Ok(Self::SWAP),
             0x54 => Ok(Self::ROT),
@@ -189,10 +191,10 @@ impl IonicInstr {
 impl Display for IonicInstr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::RET => write!(f, "RET"),
-            Self::HLT => write!(f, "HLT"),
-            Self::JUMP => write!(f, "JUMP"),
-            Self::JUMPC => write!(f, "JUMPC"),
+            Self::STOP => write!(f, "RET"),
+            Self::NOP => write!(f, "HLT"),
+            Self::JUMP(pc) => write!(f, "JUMP ${pc}"),
+            Self::JUMPC(pc) => write!(f, "JUMPC ${pc}"),
             Self::PC => write!(f, "PC"),
             Self::GAS => write!(f, "GAS"),
             Self::INVALID => write!(f, "INVALID"),

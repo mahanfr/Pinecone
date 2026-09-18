@@ -1,14 +1,12 @@
 pub mod instructions;
 use std::{cmp, error::Error, fmt::Display};
 
-use ark_ff::Zero;
+use ethnum::{AsI256, AsU256, i256, u256};
 
 use crate::{blockchian::Blockchain, vm::instructions::IonicInstr};
 
-pub type IonicWord = u128;
-
 pub struct VirtualMachine {
-    pub stack: Vec<u128>,
+    pub stack: Vec<u256>,
 }
 
 impl VirtualMachine {
@@ -16,13 +14,13 @@ impl VirtualMachine {
         Self { stack: Vec::new() }
     }
 
-    fn take_imm(code: &[u8], cur: &mut usize) -> Result<u128, VMExecutionError> {
-        if *cur + 16 > code.len() {
+    fn take_imm(code: &[u8], cur: &mut usize) -> Result<u256, VMExecutionError> {
+        if *cur + 32 > code.len() {
             return Err(VMExecutionError::InvalidSize);
         }
-        let arr: [u8; 16] = code[*cur..*cur + 16].try_into().unwrap();
-        let imm = u128::from_le_bytes(arr);
-        *cur += 16;
+        let arr: [u8; 32] = code[*cur..*cur + 32].try_into().unwrap();
+        let imm = u256::from_le_bytes(arr);
+        *cur += 32;
         return Ok(imm);
     }
 
@@ -64,22 +62,58 @@ impl VirtualMachine {
         &mut self,
         instrs: Vec<IonicInstr>,
         _blockchian: &Blockchain,
-    ) -> Result<(), VMExecutionError> {
+    ) -> Result<u64, VMExecutionError> {
         let mut pc = 0;
+        let mut gas = 0;
         while pc < instrs.len() {
             let instr = instrs[pc];
             match instr {
+                IonicInstr::STOP => {
+                    break;
+                }
+                IonicInstr::NOP => {
+                    continue;
+                }
+                IonicInstr::GAS => {
+                    self.stack.push(gas.as_u256());
+                }
+                IonicInstr::JUMP(new_pc) => {
+                    if new_pc < instrs.len() as u64 {
+                        pc = new_pc as usize;
+                        continue;
+                    } else {
+                        return Err(VMExecutionError::InvalidPC(new_pc));
+                    }
+                }
+                IonicInstr::JUMPC(new_pc) => {
+                    if new_pc >= instrs.len() as u64 {
+                        return Err(VMExecutionError::InvalidPC(new_pc));
+                    }
+                    let Some(cond) = self.stack.pop() else {
+                        return Err(VMExecutionError::StackUnderflow(pc, instr));
+                    };
+                    if cond > 0 {
+                        pc = new_pc as usize;
+                        continue;
+                    }
+                }
+                IonicInstr::INVALID => {
+                    return Ok(gas);
+                }
                 IonicInstr::PUSH(imm) => {
                     self.stack.push(imm);
+                    gas += 1;
                 }
                 IonicInstr::POP => {
                     let _ = self.stack.pop();
+                    gas += 1;
                 }
                 IonicInstr::DUP => {
                     let Some(a) = self.stack.last() else {
                         return Err(VMExecutionError::StackUnderflow(pc, instr));
                     };
                     self.stack.push(*a);
+                    gas += 1;
                 }
                 IonicInstr::SWAP => {
                     let Some(b) = self.stack.pop() else {
@@ -90,6 +124,7 @@ impl VirtualMachine {
                     };
                     self.stack.push(b);
                     self.stack.push(a);
+                    gas += 1;
                 }
                 IonicInstr::ROT => {
                     let Some(c) = self.stack.pop() else {
@@ -104,12 +139,15 @@ impl VirtualMachine {
                     self.stack.push(b);
                     self.stack.push(c);
                     self.stack.push(a);
+                    gas += 1;
                 }
                 IonicInstr::DEPT => {
-                    self.stack.push(self.stack.len() as u128);
+                    self.stack.push((self.stack.len() as u64).into());
+                    gas += 1;
                 }
                 IonicInstr::PC => {
-                    self.stack.push(pc as u128);
+                    self.stack.push((pc as u64).into());
+                    gas += 1;
                 }
                 IonicInstr::INC
                 | IonicInstr::DEC
@@ -123,6 +161,7 @@ impl VirtualMachine {
                     };
                     let result = Self::eval_unary(pc, instr, a)?;
                     self.stack.push(result);
+                    gas += 2;
                 }
                 IonicInstr::SMOD
                 | IonicInstr::SDIV
@@ -135,8 +174,9 @@ impl VirtualMachine {
                     let Some(a) = self.stack.pop() else {
                         return Err(VMExecutionError::StackUnderflow(pc, instr));
                     };
-                    let result = Self::eval_signed_binary(pc, instr, a as i128, b as i128)?;
+                    let result = Self::eval_signed_binary(pc, instr, a.as_i256(), b.as_i256())?;
                     self.stack.push(result);
+                    gas += 2;
                 }
                 IonicInstr::ADD
                 | IonicInstr::SUB
@@ -163,6 +203,7 @@ impl VirtualMachine {
                     };
                     let result = Self::eval_binary(pc, instr, a, b)?;
                     self.stack.push(result);
+                    gas += 2;
                 }
                 IonicInstr::BIT => {
                     let Some(b) = self.stack.pop() else {
@@ -171,70 +212,74 @@ impl VirtualMachine {
                     let Some(a) = self.stack.pop() else {
                         return Err(VMExecutionError::StackUnderflow(pc, instr));
                     };
-                    if b > 128 {
+                    if b > 256 {
                         return Err(VMExecutionError::OutOfBounds(pc, instr, b));
                     }
-                    let result = match a & (1u128 << b as u32) > 0 {
-                        true => 1,
-                        false => 0,
+                    let result = match a & (1.as_u256() << b.as_u32()) > 0 {
+                        true => 1.as_u256(),
+                        false => 0.as_u256(),
                     };
                     self.stack.push(result);
+                    gas += 1;
                 }
                 _ => unimplemented!("Instruction {} is not implemented yet", instr),
             }
             pc += 1;
         }
-        Ok(())
+        Ok(gas)
     }
 
-    fn eval_unary(pc: usize, op: IonicInstr, a: u128) -> Result<u128, VMExecutionError> {
+    fn eval_unary(pc: usize, op: IonicInstr, a: u256) -> Result<u256, VMExecutionError> {
         use IonicInstr::*;
         let output = match op {
-            INC => a.checked_add(1),
-            DEC => a.checked_sub(1),
+            INC => a.checked_add(1.as_u256()),
+            DEC => a.checked_sub(1.as_u256()),
             NEG => a.checked_neg(),
-            EXP => 2u128.checked_pow(a as u32),
-            ABS | SABS => (a as i128).checked_abs().map(|x| x as u128),
+            EXP => 2.as_u256().checked_pow(a.as_u32()),
+            ABS | SABS => (a.as_i256()).checked_abs().map(|x| x.as_u256()),
             NOT => match a > 0 {
-                true => Some(0),
-                false => Some(1),
+                true => Some(0.as_u256()),
+                false => Some(1.as_u256()),
             },
-            ISZERO => Some(a.is_zero() as u128),
+            ISZERO => Some((a == 0).as_u256()),
             _ => unreachable!("All operaions are covered"),
         };
         let Some(result) = output else {
             return Err(VMExecutionError::UnaryOverflow(pc, op, a));
         };
-        return Ok(result as u128);
+        return Ok(result);
     }
 
     fn eval_signed_binary(
         pc: usize,
         op: IonicInstr,
-        a: i128,
-        b: i128,
-    ) -> Result<u128, VMExecutionError> {
+        a: i256,
+        b: i256,
+    ) -> Result<u256, VMExecutionError> {
         use IonicInstr::*;
         let output = match op {
             SMOD => a.checked_rem(b),
             SDIV => a.checked_div(b),
             SMIN => Some(a.min(b)),
             SMAX => Some(a.max(b)),
-            SAR => match b >= 128 {
-                true => Some(0),
-                false => a.checked_shr(b as u32),
+            SAR => match b >= 256 {
+                true => Some(0.as_i256()),
+                false => a.checked_shr(b.as_u32()).map(|x| x.as_i256()),
             },
             _ => unreachable!("All operaions are covered"),
         };
         let Some(result) = output else {
             return Err(VMExecutionError::BinaryOverflow(
-                pc, op, a as u128, b as u128,
+                pc,
+                op,
+                a.as_u256(),
+                b.as_u256(),
             ));
         };
-        return Ok(result as u128);
+        return Ok(result.as_u256());
     }
 
-    fn eval_binary(pc: usize, op: IonicInstr, a: u128, b: u128) -> Result<u128, VMExecutionError> {
+    fn eval_binary(pc: usize, op: IonicInstr, a: u256, b: u256) -> Result<u256, VMExecutionError> {
         use IonicInstr::*;
         let output = match op {
             ADD => a.checked_add(b),
@@ -244,21 +289,21 @@ impl VirtualMachine {
             MOD => a.checked_rem(b),
             MIN => Some(cmp::min(a, b)),
             MAX => Some(cmp::max(a, b)),
-            LT => Some((a < b) as u128),
-            GT => Some((a > b) as u128),
-            ELT => Some((a <= b) as u128),
-            EGT => Some((a >= b) as u128),
-            EQ => Some((a == b) as u128),
+            LT => Some((a < b).as_u256()),
+            GT => Some((a > b).as_u256()),
+            ELT => Some((a <= b).as_u256()),
+            EGT => Some((a >= b).as_u256()),
+            EQ => Some((a == b).as_u256()),
             AND => Some(a & b),
             OR => Some(a | b),
             XOR => Some(a ^ b),
-            SHL => match b >= 128 {
-                true => Some(0),
-                false => a.checked_shl(b as u32),
+            SHL => match b >= 256 {
+                true => Some(0.as_u256()),
+                false => a.checked_shl(b.as_u32()),
             },
-            SHR => match b >= 128 {
-                true => Some(0),
-                false => a.checked_shr(b as u32),
+            SHR => match b >= 256 {
+                true => Some(0.as_u256()),
+                false => a.checked_shr(b.as_u32()),
             },
             _ => unreachable!("All operaions are covered"),
         };
@@ -274,11 +319,12 @@ pub enum VMExecutionError {
     IllegalInstruction(u8),
     InvalidSize,
     SyntaxError(IonicInstr),
-    UnaryOverflow(usize, IonicInstr, u128),
-    BinaryOverflow(usize, IonicInstr, u128, u128),
-    TernaryOverflow(usize, IonicInstr, u128, u128, u128),
+    InvalidPC(u64),
+    UnaryOverflow(usize, IonicInstr, u256),
+    BinaryOverflow(usize, IonicInstr, u256, u256),
+    TernaryOverflow(usize, IonicInstr, u256, u256, u256),
     StackUnderflow(usize, IonicInstr),
-    OutOfBounds(usize, IonicInstr, u128),
+    OutOfBounds(usize, IonicInstr, u256),
 }
 
 impl Display for VMExecutionError {
@@ -287,6 +333,7 @@ impl Display for VMExecutionError {
             Self::SyntaxError(opr) => write!(f, "Syntax Error at ({})", opr),
             Self::IllegalInstruction(val) => write!(f, "Illegal Instruction: ({val})"),
             Self::InvalidSize => write!(f, "Invalid Size"),
+            Self::InvalidPC(pc) => write!(f, "Invalid PC: there is no instruction at ${pc}"),
             Self::UnaryOverflow(pc, instr, a) => {
                 write!(f, "Operation Overflow at ${pc}: {instr} {a}")
             }
@@ -312,6 +359,8 @@ impl Error for VMExecutionError {}
 
 #[cfg(test)]
 mod tests {
+    use ethnum::AsU256;
+
     use crate::{
         blockchian::Blockchain,
         vm::{VirtualMachine, instructions::IonicInstr},
@@ -321,21 +370,29 @@ mod tests {
     pub fn basic_vm_test() {
         let blockchian = Blockchain::new(0);
         let mut vm = VirtualMachine::new();
-        let instrs = vec![IonicInstr::PUSH(34), IonicInstr::PUSH(33), IonicInstr::ADD];
+        let instrs = vec![
+            IonicInstr::PUSH(34.as_u256()),
+            IonicInstr::PUSH(33.as_u256()),
+            IonicInstr::ADD,
+        ];
         assert!(
             vm.run(instrs, &blockchian).is_ok(),
             "Instructions return an error"
         );
         assert_eq!(
             vm.stack.last(),
-            Some(67).as_ref(),
+            Some(67.as_u256()).as_ref(),
             "value is not on the stack or the result is undisiarable"
         );
     }
 
     #[test]
     pub fn basic_parsing_and_compiling_test() {
-        let instrs = vec![IonicInstr::PUSH(34), IonicInstr::PUSH(33), IonicInstr::ADD];
+        let instrs = vec![
+            IonicInstr::PUSH(34.as_u256()),
+            IonicInstr::PUSH(33.as_u256()),
+            IonicInstr::ADD,
+        ];
         let code = VirtualMachine::compile(instrs.clone());
         let parsed_instrs = VirtualMachine::parse(code).expect("code did not parsed correctly");
         assert_eq!(instrs, parsed_instrs);
