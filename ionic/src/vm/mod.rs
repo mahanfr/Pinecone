@@ -1,4 +1,5 @@
 pub mod instructions;
+pub mod memory;
 use std::{cmp, error::Error, fmt::Display};
 
 use ethnum::{AsI256, AsU256, i256, u256};
