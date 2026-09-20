@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-
 /**********************************************************************************************
 *
 *   parser/structs: parsing strucure defenitions
@@ -24,20 +22,21 @@ use std::collections::BTreeMap;
 *     3. This notice may not be removed or altered from any source distribution.
 *
 **********************************************************************************************/
+use std::collections::HashMap;
 use crate::{lexer::{Lexer, TokenType}, parser::types::{VariableType, type_def}};
 
-#[derive(Debug, Clone, Hash, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct StructType {
     pub public: bool,
     pub ident: String,
-    pub items: BTreeMap<String, StructItemType>,
+    pub items: HashMap<String, StructItemType>,
 }
 
 impl StructType {
     pub fn size(&self) -> usize {
         let mut size = 0;
         for item in self.items.values() {
-            size += item.offset;
+            size += item.vtype.size();
         }
         size as usize
     }
@@ -46,15 +45,13 @@ impl StructType {
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub struct StructItemType {
     pub ident: String,
-    pub offset: i32,
     pub vtype: VariableType,
 }
 
 impl StructItemType {
-    pub fn new(ident: String, offset: i32, vtype: VariableType) -> Self {
+    pub fn new(ident: String, vtype: VariableType) -> Self {
         Self {
             ident,
-            offset,
             vtype,
         }
     }
@@ -64,8 +61,7 @@ pub fn struct_def(lexer: &mut Lexer, public: bool) -> StructType {
     let struct_ident_token = lexer.get_token();
     lexer.match_token(TokenType::Identifier);
     lexer.match_token(TokenType::OCurly);
-    let mut items = BTreeMap::<String, StructItemType>::new();
-    let mut offset = 0;
+    let mut items = HashMap::<String, StructItemType>::new();
     loop {
         if lexer.get_token_type() == TokenType::CCurly {
             lexer.match_token(TokenType::CCurly);
@@ -75,10 +71,9 @@ pub fn struct_def(lexer: &mut Lexer, public: bool) -> StructType {
         lexer.match_token(TokenType::Identifier);
         if lexer.get_token_type() == TokenType::ATSign {
             let ttype = type_def(lexer);
-            offset += ttype.size();
             items.insert(
                 ident.clone(),
-                StructItemType::new(ident.clone(), offset as i32, ttype),
+                StructItemType::new(ident.clone(), ttype),
             );
         }
         if lexer.get_token_type() != TokenType::CCurly {

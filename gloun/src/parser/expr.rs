@@ -1,3 +1,5 @@
+use ethnum::u256;
+
 /**********************************************************************************************
 *
 *   parser/expr: parse expressions
@@ -49,7 +51,7 @@ pub enum ExprType {
     Compare(CompareExpr),
     /// Integer values
     /// e.g: 10
-    Int(i32),
+    Number(u256),
     /// Member Access Operator
     /// e.g: fridge.milk
     Access(String, Box<Expr>),
@@ -373,7 +375,7 @@ pub fn factor(lexer: &mut Lexer) -> Expr {
         TokenType::Number(val) => {
             lexer.next_token();
             Expr {
-                etype: ExprType::Int(val),
+                etype: ExprType::Number(val),
                 loc,
             }
         }

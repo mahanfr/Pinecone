@@ -52,7 +52,7 @@ pub fn inline_variable_declare(lexer: &mut Lexer) -> VariableDeclare {
     let ident_token = lexer.get_token();
     let _loc = lexer.get_token_loc();
     lexer.match_token(TokenType::Identifier);
-    let mut v_type: VariableType = VariableType::Any;
+    let mut v_type: VariableType = VariableType::Null;
     let mut init_value: Option<Expr> = None;
     if lexer.get_token_type() == TokenType::ATSign {
         v_type = type_def(lexer);
@@ -94,7 +94,7 @@ pub fn inline_variable_declare(lexer: &mut Lexer) -> VariableDeclare {
 pub fn raw_variable_declare(lexer: &mut Lexer, ident: String) -> VariableDeclare {
     let loc = lexer.get_token_loc();
     let mut init_value : Option<Expr> = None;
-    let mut v_type = VariableType::Any;
+    let mut v_type = VariableType::Null;
     match lexer.get_token_type() {
         TokenType::ColonEq => {
             lexer.match_token(TokenType::ColonEq);
@@ -126,7 +126,7 @@ pub fn variable_declare(lexer: &mut Lexer, public: bool) -> VariableDeclare {
     let ident = lexer.get_token().literal;
     let loc = lexer.get_token_loc();
     let mut init_value : Option<Expr> = None;
-    let mut v_type = VariableType::Any;
+    let mut v_type = VariableType::Null;
     lexer.match_token(TokenType::Identifier);
     match lexer.get_token_type() {
         TokenType::ColonEq => {

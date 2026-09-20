@@ -1,3 +1,5 @@
+use ethnum::u256;
+
 /**********************************************************************************************
 *
 *   parser/stmt: parsing statements that are parts that directly compile to instructions
@@ -148,7 +150,7 @@ pub fn for_loop(lexer: &mut Lexer) -> ForLoop {
     if iterator.init_value.is_none() {
         iterator.init_value = Some(Expr {
             loc: iterator.loc.clone(),
-            etype: super::expr::ExprType::Int(0),
+            etype: super::expr::ExprType::Number(u256::ZERO),
         });
     }
     lexer.match_token(TokenType::To);

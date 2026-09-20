@@ -27,12 +27,14 @@
 **********************************************************************************************/
 use std::{fmt::Display, process::exit};
 
+use ethnum::u256;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TokenType {
     /// Identifies a variable or functuin e.g: a, main, print
     Identifier,
     /// Numeric value e.g: 12 ,0xf3, 0b110
-    Number(i32),
+    Number(u256),
     /// String Literal e.g: "Hello world", "hi\nhello"
     String,
     /// Public item indicator
@@ -636,39 +638,13 @@ impl Lexer {
     fn parse_numeric_literal(&self, literal: &String) -> TokenType {
         // 0x001 0xff 0b0010
         let loc = self.get_current_loc();
-        let mut lit_chars = literal.chars();
-        if literal.contains('x') {
-            self.expect_char(&lit_chars.next(), vec!['0']);
-            self.expect_char(&lit_chars.next(), vec!['x']);
-            let mut value: i64 = 0;
-            for ch in lit_chars {
-                let digit = ch.to_digit(16).unwrap_or_else(|| {
-                    error(
-                        format!("Unknown character in parsing ({})", literal),
-                        loc.clone(),
-                    );
-                });
-                value = (value * 16i64) + digit as i64;
-            }
-            TokenType::Number(value as i32)
-        } else if literal.contains('b') {
-            self.expect_char(&lit_chars.next(), vec!['0']);
-            self.expect_char(&lit_chars.next(), vec!['b']);
-            let mut value: i32 = 0;
-            for ch in lit_chars {
-                let digit = ch.to_digit(2).unwrap_or_else(|| {
-                    error(
-                        format!("Unknown character in parsing ({})", literal),
-                        loc.clone(),
-                    );
-                });
-                value = (value * 2i32) + digit as i32;
-            }
-            TokenType::Number(value)
-        } else {
-            let value: i32 = literal.parse::<i32>().unwrap();
-            TokenType::Number(value)
-        }
+        let Ok(value) = u256::from_str_prefixed(literal) else {
+            error(
+                format!("Unknown character in parsing ({})", literal),
+                loc.clone(),
+            );
+        };
+        TokenType::Number(value)
     }
 
     /// Returns char if exits in a list
@@ -718,30 +694,36 @@ pub fn error(msg: impl ToString, loc: Loc) -> ! {
     exit(-1);
 }
 
-#[test]
-fn expr_tokens() {
-    let mut lexer = Lexer::new(String::new(), "a + (3 * 4) - 2".to_string());
-    assert_eq!(lexer.next_token().t_type, TokenType::Identifier);
-    assert_eq!(lexer.next_token().t_type, TokenType::Plus);
-    assert_eq!(lexer.next_token().t_type, TokenType::OParen);
-    assert_eq!(lexer.next_token().t_type, TokenType::Number(3));
-    assert_eq!(lexer.next_token().t_type, TokenType::Multi);
-    assert_eq!(lexer.next_token().t_type, TokenType::Number(4));
-    assert_eq!(lexer.next_token().t_type, TokenType::CParen);
-    assert_eq!(lexer.next_token().t_type, TokenType::Minus);
-    assert_eq!(lexer.next_token().t_type, TokenType::Number(2));
-}
+#[cfg(test)]
+mod tests {
+    use ethnum::AsU256;
+    use super::*;
 
-#[test]
-fn string_literal() {
-    let mut lexer = Lexer::new(String::new(), "\"test\"".to_string());
-    assert_eq!(lexer.tokenize_string_literal().t_type, TokenType::String);
-}
+    #[test]
+    fn expr_tokens() {
+        let mut lexer = Lexer::new(String::new(), "a + (3 * 4) - 2".to_string());
+        assert_eq!(lexer.next_token().t_type, TokenType::Identifier);
+        assert_eq!(lexer.next_token().t_type, TokenType::Plus);
+        assert_eq!(lexer.next_token().t_type, TokenType::OParen);
+        assert_eq!(lexer.next_token().t_type, TokenType::Number(3.as_u256()));
+        assert_eq!(lexer.next_token().t_type, TokenType::Multi);
+        assert_eq!(lexer.next_token().t_type, TokenType::Number(4.as_u256()));
+        assert_eq!(lexer.next_token().t_type, TokenType::CParen);
+        assert_eq!(lexer.next_token().t_type, TokenType::Minus);
+        assert_eq!(lexer.next_token().t_type, TokenType::Number(2.as_u256()));
+    }
 
-#[test]
-fn string_literal_escape_seq() {
-    let mut lexer = Lexer::new(String::new(), "\"test\\ntest\"".to_string());
-    assert_eq!(lexer.tokenize_string_literal().t_type, TokenType::String);
-    let mut lexer = Lexer::new(String::new(), "\"\\\"test\\\"\"".to_string());
-    assert_eq!(lexer.tokenize_string_literal().t_type, TokenType::String);
+    #[test]
+    fn string_literal() {
+        let mut lexer = Lexer::new(String::new(), "\"test\"".to_string());
+        assert_eq!(lexer.tokenize_string_literal().t_type, TokenType::String);
+    }
+
+    #[test]
+    fn string_literal_escape_seq() {
+        let mut lexer = Lexer::new(String::new(), "\"test\\ntest\"".to_string());
+        assert_eq!(lexer.tokenize_string_literal().t_type, TokenType::String);
+        let mut lexer = Lexer::new(String::new(), "\"\\\"test\\\"\"".to_string());
+        assert_eq!(lexer.tokenize_string_literal().t_type, TokenType::String);
+    }
 }

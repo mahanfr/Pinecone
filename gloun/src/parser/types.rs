@@ -1,13 +1,13 @@
 use std::fmt::Display;
 
-use crate::{lexer::{Lexer, TokenType}, parser::structs::StructType};
+use crate::{lexer::{Lexer, TokenType}};
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub enum VariableType {
     /// Type of a Variable Before type refering
     /// Will cause unreachable code if used
+    Null,
     Void,
-    Any,
     U8,
     U16,
     U32,
@@ -23,7 +23,6 @@ pub enum VariableType {
     Bool,
     /// e.g. @[address; 32]
     Array(Box<VariableType>, usize),
-    Struct(StructType),
     /// e.g., @Map<address, @i32>
     Map(Box<VariableType>, Box<VariableType>),
     /// e.g., @List<address>
@@ -38,7 +37,6 @@ impl VariableType {
     /// Convert String literal to Variable Type
     pub fn from_string(literal: String) -> Self {
         match literal.as_str() {
-            "?" => Self::Any,
             "u8" => Self::U8,
             "u16" => Self::U16,
             "u32" => Self::U32,
@@ -62,7 +60,7 @@ impl VariableType {
     /// returns size of the type
     pub fn size(&self) -> usize {
         match self {
-            Self::Void => 0,
+            Self::Void | Self::Null => 0,
             Self::U8 | Self::I8 | Self::Bool => 1,
             Self::U16 | Self::I16 => 2,
             Self::U32 | Self::I32 => 4,
@@ -70,10 +68,9 @@ impl VariableType {
             Self::U128 | Self::I128 => 16,
             Self::U256 | Self::I256 => 32,
             Self::Address | Self::Pk | Self::Hash => 32,
-            Self::Struct(s) => s.size(),
             Self::Array(t, s) => t.size() * s,
-            Self::Custom(_) | Self::Any | Self::Map(_, _) | Self::List(_) =>
-                unreachable!("Type {self} is not known at this point"),
+            Self::Map(_, _) | Self::List(_) => 32,
+            Self::Custom(_) => 32,
         }
     }
 
@@ -85,8 +82,8 @@ impl VariableType {
     }
 
     /// checks if type is any
-    pub fn is_any(&self) -> bool {
-        matches!(self, Self::Any)
+    pub fn is_null(&self) -> bool {
+        matches!(self, Self::Null)
     }
 
 }
@@ -95,7 +92,7 @@ impl Display for VariableType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Void => write!(f, "@void"),
-            Self::Any => write!(f, "@any"),
+            Self::Null => write!(f, "@Null"),
             Self::U8 => write!(f, "@uint8"),
             Self::U16 => write!(f, "@uint16"),
             Self::U32 => write!(f, "@uint32"),
@@ -110,7 +107,6 @@ impl Display for VariableType {
             Self::I256 => write!(f, "@i256"),
             Self::Bool => write!(f, "@bool"),
             Self::Array(vt, s) => write!(f, "@[{vt}; {s}]"),
-            Self::Struct(s) => write!(f, "@struct {}", s.ident),
             Self::Map(kt, vt) => write!(f, "@Map<{kt}, {vt}>"),
             Self::List(vt) => write!(f, "@List<{vt}>"),
             Self::Address => write!(f, "@address"),
