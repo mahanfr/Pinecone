@@ -32,11 +32,7 @@ pub enum TokenType {
     /// Identifies a variable or functuin e.g: a, main, print
     Identifier,
     /// Numeric value e.g: 12 ,0xf3, 0b110
-    Int(i32),
-    /// Floating value e.g: 0.5
-    Float(f64),
-    /// Character Literal e.g: 'A', '9', '\n'
-    Char(char),
+    Number(i32),
     /// String Literal e.g: "Hello world", "hi\nhello"
     String,
     /// Public item indicator
@@ -66,8 +62,6 @@ pub enum TokenType {
     /// Keyword if
     If,
     /// Keyword var
-    Var,
-    /// Keyword else
     Else,
     /// Keyword return
     Return,
@@ -153,18 +147,12 @@ pub enum TokenType {
     Sof,
     // Import module
     Import,
-    // Macro Definition
-    Macro,
     // For Loop
     For,
     // to (range)
     To,
-    // Defer
-    Defer,
     // Static
     Static,
-    // Extern
-    Extern,
 }
 
 impl TokenType {
@@ -180,9 +168,7 @@ impl Display for TokenType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             TokenType::Identifier => write!(f, "Identifier"),
-            TokenType::Int(i) => write!(f, "{}", i),
-            TokenType::Float(fl) => write!(f, "{}", fl),
-            TokenType::Char(char) => write!(f, "{}", char),
+            TokenType::Number(i) => write!(f, "{}", i),
             TokenType::String => write!(f, "String Literal"),
             TokenType::Public => write!(f, "Public"),
             TokenType::Plus => write!(f, "+"),
@@ -197,7 +183,6 @@ impl Display for TokenType {
             TokenType::Contract => write!(f, "contract"),
             TokenType::Struct => write!(f, "struct"),
             TokenType::If => write!(f, "if"),
-            TokenType::Var => write!(f, "var"),
             TokenType::Else => write!(f, "else"),
             TokenType::Return => write!(f, "return"),
             TokenType::While => write!(f, "while"),
@@ -239,14 +224,11 @@ impl Display for TokenType {
             TokenType::Eof => write!(f, "Eof"),
             TokenType::Sof => write!(f, "Sof"),
             TokenType::Import => write!(f, "import"),
-            TokenType::Macro => write!(f, "macro"),
             TokenType::DoubleOr => write!(f, "||"),
             TokenType::DoubleAnd => write!(f, "&&"),
             TokenType::For => write!(f, "for"),
             TokenType::To => write!(f, "to"),
-            TokenType::Defer => write!(f, "defer"),
             TokenType::Static => write!(f, "static"),
-            TokenType::Extern => write!(f, "extern"),
         }
     }
 }
@@ -457,11 +439,7 @@ impl Lexer {
             let ttype_and_val = self.parse_numeric_literal(&literal);
             return Token::new(ttype_and_val, literal, loc);
         }
-        if first == '\'' {
-            return self.tokenize_char_literal();
-        }
-
-        if first == '"' {
+        if first == '"' || first == '\'' {
             return self.tokenize_string_literal();
         }
 
@@ -482,71 +460,19 @@ impl Lexer {
         error("Unexpected Character", loc);
     }
 
-    /// Tokenses the char literal
-    /// ONLY call when current char is (')
-    fn tokenize_char_literal(&mut self) -> Token {
-        self.drop();
-        let literal;
-        let char = self.source[self.cur];
-        let loc = self.get_current_loc();
-        if char == '\'' {
-            error("char literal can not be empty", loc);
-        }
-        if char == '\\' {
-            self.drop();
-            if self.is_empty() {
-                error("char literal unfinished escape sequence", loc);
-            }
-            let escape = self.source[self.cur];
-            match escape {
-                'n' => {
-                    literal = '\n';
-                }
-                '\'' => {
-                    literal = '\'';
-                }
-                't' => {
-                    literal = '\t';
-                }
-                'r' => {
-                    literal = '\r';
-                }
-                '\\' => {
-                    literal = '\\';
-                }
-                '0' => {
-                    literal = '\0';
-                }
-                _ => {
-                    error(format!("unsupported escape sequence (\\{})", escape), loc);
-                }
-            }
-            self.drop();
-        } else {
-            literal = char;
-            self.drop();
-        }
-
-        if !self.is_empty() {
-            if self.source[self.cur] != '\'' {
-                error("unsupported char", loc);
-            }
-            self.drop();
-            Token::new(TokenType::Char(literal), literal.to_string(), loc)
-        } else {
-            error("Error: Char literal is not closed properly", loc);
-        }
-    }
-
     /// Tokenses the string literal
     /// ONLY call when current char is (")
     fn tokenize_string_literal(&mut self) -> Token {
+        let opener = self.source[self.cur];
+        if opener != '"' && opener != '\'' {
+            unreachable!("string literals can only start with <\"> or <'>")
+        }
         self.drop();
         let mut literal = String::new();
         let loc = self.get_current_loc();
         while !self.is_empty() {
             let char = self.source[self.cur];
-            if char == '\"' {
+            if char == opener {
                 break;
             }
             if char == '\n' {
@@ -566,6 +492,10 @@ impl Lexer {
                     }
                     '"' => {
                         literal.push('"');
+                        self.drop();
+                    }
+                    '\'' => {
+                        literal.push('\'');
                         self.drop();
                     }
                     't' => {
@@ -613,7 +543,6 @@ impl Lexer {
             "else" => Some(TokenType::Else),
             "func" => Some(TokenType::Func),
             "struct" => Some(TokenType::Struct),
-            "var" => Some(TokenType::Var),
             "return" => Some(TokenType::Return),
             "while" => Some(TokenType::While),
             "break" => Some(TokenType::Break),
@@ -623,13 +552,10 @@ impl Lexer {
             "false" => Some(TokenType::False),
             "public" => Some(TokenType::Public),
             "import" => Some(TokenType::Import),
-            "macro" => Some(TokenType::Macro),
             "contract" => Some(TokenType::Contract),
             "for" => Some(TokenType::For),
             "to" => Some(TokenType::To),
-            "defer" => Some(TokenType::Defer),
             "static" => Some(TokenType::Static),
-            "extern" => Some(TokenType::Extern),
             _ => None,
         }
     }
@@ -724,7 +650,7 @@ impl Lexer {
                 });
                 value = (value * 16i64) + digit as i64;
             }
-            TokenType::Int(value as i32)
+            TokenType::Number(value as i32)
         } else if literal.contains('b') {
             self.expect_char(&lit_chars.next(), vec!['0']);
             self.expect_char(&lit_chars.next(), vec!['b']);
@@ -738,13 +664,10 @@ impl Lexer {
                 });
                 value = (value * 2i32) + digit as i32;
             }
-            TokenType::Int(value)
-        } else if literal.contains('.') {
-            let value: f64 = literal.parse::<f64>().unwrap();
-            TokenType::Float(value)
+            TokenType::Number(value)
         } else {
             let value: i32 = literal.parse::<i32>().unwrap();
-            TokenType::Int(value)
+            TokenType::Number(value)
         }
     }
 
@@ -801,12 +724,12 @@ fn expr_tokens() {
     assert_eq!(lexer.next_token().t_type, TokenType::Identifier);
     assert_eq!(lexer.next_token().t_type, TokenType::Plus);
     assert_eq!(lexer.next_token().t_type, TokenType::OParen);
-    assert_eq!(lexer.next_token().t_type, TokenType::Int(3));
+    assert_eq!(lexer.next_token().t_type, TokenType::Number(3));
     assert_eq!(lexer.next_token().t_type, TokenType::Multi);
-    assert_eq!(lexer.next_token().t_type, TokenType::Int(4));
+    assert_eq!(lexer.next_token().t_type, TokenType::Number(4));
     assert_eq!(lexer.next_token().t_type, TokenType::CParen);
     assert_eq!(lexer.next_token().t_type, TokenType::Minus);
-    assert_eq!(lexer.next_token().t_type, TokenType::Int(2));
+    assert_eq!(lexer.next_token().t_type, TokenType::Number(2));
 }
 
 #[test]

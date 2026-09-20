@@ -1,10 +1,12 @@
-use crate::{lexer::{Lexer, TokenType}, parser::structs::StructType};
+use std::fmt::Display;
 
+use crate::{lexer::{Lexer, TokenType}, parser::structs::StructType};
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub enum VariableType {
     /// Type of a Variable Before type refering
     /// Will cause unreachable code if used
+    Void,
     Any,
     U8,
     U16,
@@ -60,6 +62,7 @@ impl VariableType {
     /// returns size of the type
     pub fn size(&self) -> usize {
         match self {
+            Self::Void => 0,
             Self::U8 | Self::I8 | Self::Bool => 1,
             Self::U16 | Self::I16 => 2,
             Self::U32 | Self::I32 => 4,
@@ -70,7 +73,7 @@ impl VariableType {
             Self::Struct(s) => s.size(),
             Self::Array(t, s) => t.size() * s,
             Self::Custom(_) | Self::Any | Self::Map(_, _) | Self::List(_) =>
-                unreachable!("Type is not known at this point"),
+                unreachable!("Type {self} is not known at this point"),
         }
     }
 
@@ -86,6 +89,36 @@ impl VariableType {
         matches!(self, Self::Any)
     }
 
+}
+
+impl Display for VariableType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Void => write!(f, "@void"),
+            Self::Any => write!(f, "@any"),
+            Self::U8 => write!(f, "@uint8"),
+            Self::U16 => write!(f, "@uint16"),
+            Self::U32 => write!(f, "@uint32"),
+            Self::U64 => write!(f, "@uint64"),
+            Self::U128 => write!(f, "@uint128"),
+            Self::U256 => write!(f, "@uint256"),
+            Self::I8 => write!(f, "@i8"),
+            Self::I16 => write!(f, "@i16"),
+            Self::I32 => write!(f, "@i32"),
+            Self::I64 => write!(f, "@i64"),
+            Self::I128 => write!(f, "@i128"),
+            Self::I256 => write!(f, "@i256"),
+            Self::Bool => write!(f, "@bool"),
+            Self::Array(vt, s) => write!(f, "@[{vt}; {s}]"),
+            Self::Struct(s) => write!(f, "@struct {}", s.ident),
+            Self::Map(kt, vt) => write!(f, "@Map<{kt}, {vt}>"),
+            Self::List(vt) => write!(f, "@List<{vt}>"),
+            Self::Address => write!(f, "@address"),
+            Self::Pk => write!(f, "@pk"),
+            Self::Hash => write!(f, "@hash"),
+            Self::Custom(t) => write!(f, "@{t}"),
+        }
+    }
 }
 
 fn parse_custom(lexer: &mut Lexer, typ_string: &str) -> VariableType {

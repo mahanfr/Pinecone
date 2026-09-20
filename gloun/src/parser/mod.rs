@@ -1,8 +1,14 @@
-mod structs;
-mod types;
+pub mod structs;
+pub mod types;
+pub mod functions;
+pub mod blocks;
+pub mod stmt;
+pub mod assign;
+pub mod variable_decl;
+pub mod expr;
 use std::{collections::BTreeMap, fs};
 
-use crate::{lexer::{Lexer, TokenType, error}, parser::structs::{StructType, struct_def}};
+use crate::{lexer::{Lexer, TokenType, error}, parser::{functions::{FunctionDef, parse_function_definition}, structs::{StructType, struct_def}, variable_decl::{VariableDeclare, variable_declare}}};
 
 /// Top level program items
 #[derive(Debug, Clone)]
@@ -12,9 +18,9 @@ pub enum ContractItem {
     /// Struct Defenition
     Struct(StructType),
     /// Function Definitions
-    Func,
+    Func(FunctionDef),
     /// Global Variable
-    GBVariable,
+    GBVariable(VariableDeclare),
 }
 
 #[derive(Debug, Clone)]
@@ -75,18 +81,40 @@ pub fn parse_contract(lexer: &mut Lexer) -> Contract {
                 public = true;
                 continue;
             }
+            TokenType::Func => {
+                let function_def = parse_function_definition(lexer);
+                let ident = function_def.decl.ident.clone();
+                if let Some(_) = items.insert(ident.clone(), ContractItem::Func(function_def)) {
+                    error(
+                        format!("Function with the name {} already exists", ident),
+                        loc,
+                    );
+                }
+            }
             TokenType::Struct => {
                 let struct_def = struct_def(lexer, public);
                 let ident = struct_def.ident.clone();
-                let prv_value = items.insert(ident.clone(), ContractItem::Struct(struct_def));
-                if prv_value.is_some() {
+                if let Some(_) = items.insert(ident.clone(), ContractItem::Struct(struct_def)) {
                     error(
                         format!("Struct with the name {} already exists", ident.clone()),
                         loc,
                     );
                 }
-            },
-            _ => todo!()
+            }
+            TokenType::Identifier => {
+                // public a := 0;
+                // public a @u128 := 0;
+                // public a @u128;
+                let var_decl = variable_declare(lexer, public);
+                let ident = var_decl.ident.clone();
+                if let Some(_) = items.insert(ident.clone(), ContractItem::GBVariable(var_decl)) {
+                    error(
+                        format!("Variable with the name {} already exists", ident.clone()),
+                        loc,
+                    );
+                }
+            }
+            _ => todo!("{}",lexer.get_token().literal)
         }
         public = false;
 
