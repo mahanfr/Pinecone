@@ -22,7 +22,7 @@
 *     3. This notice may not be removed or altered from any source distribution.
 *
 **********************************************************************************************/
-use crate::lexer::{Lexer, TokenType, error};
+use crate::{lexer::{Lexer, TokenType, error}, parser::{expr::ExprType, variable_decl::raw_variable_declare}};
 
 use super::{
     expr::{expr, Expr},
@@ -88,6 +88,18 @@ pub fn assign(lexer: &mut Lexer) -> Stmt {
         Stmt {
             stype: StmtType::Expr(left_expr),
             loc,
+        }
+    } else if token_type == TokenType::ColonEq || token_type == TokenType::ATSign {
+        if let ExprType::Variable(ident) = left_expr.etype {
+            return Stmt {
+                stype: StmtType::VariableDecl(raw_variable_declare(lexer, ident)),
+                loc
+            };
+        } else {
+            error(
+                format!("Expected variable found ({})", lexer.get_token_type()),
+                loc,
+            );
         }
     } else if token_type.is_assgin_token() {
         let op_type = AssignOp::from_token_type(&token_type);

@@ -24,7 +24,7 @@
 **********************************************************************************************/
 use crate::{
     lexer::{Lexer, TokenType, error},
-    parser::{blocks::{Block, BlockType}, types::type_def},
+    parser::{blocks::{Block}, types::type_def},
 };
 
 use super::{types::VariableType};
@@ -80,9 +80,8 @@ pub fn parse_function_declaration(lexer: &mut Lexer) -> FunctionDecl {
 /// Parsing Function definition
 pub fn parse_function_definition(lexer: &mut Lexer) -> FunctionDef {
     let decl = parse_function_declaration(lexer);
-    let mut block = Block::new_global(decl.ident.clone(), BlockType::Function);
+    let mut block = Block::new();
     block.parse_block(lexer);
-    let mut block = Block::new_global(decl.ident.clone(), BlockType::Function);
     FunctionDef {
         decl,
         block,

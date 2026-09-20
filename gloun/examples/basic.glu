@@ -9,4 +9,11 @@ contract Basic {
 
     public voters @Map<address, Account>;
     nonce @u64;
+
+    func get_nonce() @u64 {
+        sum := 1;
+        nonce += sum;
+        add();
+        return nonce;
+    }
 }

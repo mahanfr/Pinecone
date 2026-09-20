@@ -91,6 +91,36 @@ pub fn inline_variable_declare(lexer: &mut Lexer) -> VariableDeclare {
     }
 }
 
+pub fn raw_variable_declare(lexer: &mut Lexer, ident: String) -> VariableDeclare {
+    let loc = lexer.get_token_loc();
+    let mut init_value : Option<Expr> = None;
+    let mut v_type = VariableType::Any;
+    match lexer.get_token_type() {
+        TokenType::ColonEq => {
+            lexer.match_token(TokenType::ColonEq);
+            init_value = Some(expr(lexer));
+        }
+        TokenType::ATSign => {
+            v_type = type_def(lexer);
+            if lexer.get_token_type() == TokenType::ColonEq {
+                lexer.match_token(TokenType::ColonEq);
+                init_value = Some(expr(lexer));
+            }
+        }
+        _ => {
+            error(
+                format!(
+                    "Expected \":=\" or a type found ({})",
+                    lexer.get_token_type()
+                ),
+                loc,
+            );
+        }
+    }
+    lexer.match_token(TokenType::SemiColon);
+    VariableDeclare { public: false, ident, v_type, init_value, loc }
+}
+
 /// Parse Variable Declaration
 pub fn variable_declare(lexer: &mut Lexer, public: bool) -> VariableDeclare {
     let ident = lexer.get_token().literal;
