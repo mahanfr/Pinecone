@@ -23,7 +23,7 @@
 *
 **********************************************************************************************/
 use crate::{
-    lexer::{Lexer, TokenType, error},
+    lexer::{Lexer, Loc, TokenType , error},
     parser::{blocks::Block, types::type_def},
 };
 
@@ -54,6 +54,7 @@ pub struct FunctionDecl {
     pub ident: String,
     pub args: Vec<FunctionArg>,
     pub ret_type: VariableType,
+    pub loc: Loc,
 }
 
 pub fn parse_function_declaration(lexer: &mut Lexer) -> FunctionDecl {
@@ -74,13 +75,14 @@ pub fn parse_function_declaration(lexer: &mut Lexer) -> FunctionDecl {
         ident: fn_ident,
         args,
         ret_type,
+        loc,
     }
 }
 
 /// Parsing Function definition
 pub fn parse_function_definition(lexer: &mut Lexer) -> FunctionDef {
     let decl = parse_function_declaration(lexer);
-    let mut block = Block::new();
+    let mut block = Block::new(lexer, &decl.ident);
     block.parse_block(lexer);
     FunctionDef { decl, block }
 }

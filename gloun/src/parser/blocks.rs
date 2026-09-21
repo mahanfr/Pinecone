@@ -1,3 +1,5 @@
+use std::hash::{DefaultHasher, Hash, Hasher};
+
 /**********************************************************************************************
 *
 *   parser/block: parse blocks syntax (e.g: if/while block)
@@ -37,15 +39,33 @@ use super::{
 /// Holds a list of stmt in a block of code
 #[derive(Debug, Clone)]
 pub struct Block {
+    pub id: String,
     pub stmts: Vec<Stmt>,
 }
 
 impl Block {
-    pub fn new() -> Self {
-        Self { stmts: Vec::new() }
+    pub fn new(lexer: &Lexer, prev_id: &str) -> Self {
+        Self { id: Self::new_id(lexer, prev_id), stmts: Vec::new() }
     }
 
-    pub fn parse_stmt(&mut self, lexer: &mut Lexer) -> Stmt {
+    pub fn new_id(lexer: &Lexer, prev_id: &str) -> String {
+        let mut prev_id = prev_id.to_string();
+        prev_id.push_str(&Self::unique_id(lexer));
+        prev_id
+    }
+
+    pub fn unique_id(lexer: &Lexer) -> String {
+        let mut id = String::new();
+        id.push('_');
+        let loc = lexer.get_token_loc();
+        let mut hasher = DefaultHasher::new();
+        loc.hash(&mut hasher);
+        let key = hasher.finish().to_string();
+        id.push_str(&key);
+        id
+    }
+
+    pub fn parse_stmt(&self, lexer: &mut Lexer) -> Stmt {
         match lexer.get_token_type() {
             TokenType::Print => {
                 let loc = lexer.get_token_loc();
@@ -88,14 +108,14 @@ impl Block {
             TokenType::While => {
                 let loc = lexer.get_token_loc();
                 Stmt {
-                    stype: StmtType::While(while_stmt(lexer)),
+                    stype: StmtType::While(while_stmt(lexer, self)),
                     loc,
                 }
             }
             TokenType::For => {
                 let loc = lexer.get_token_loc();
                 Stmt {
-                    stype: StmtType::ForLoop(for_loop(lexer)),
+                    stype: StmtType::ForLoop(for_loop(lexer, self)),
                     loc,
                 }
             }
@@ -111,7 +131,7 @@ impl Block {
             }
             TokenType::Identifier => {
                 //Assgin Op
-                assign(lexer)
+                assign(lexer, self)
             }
             _ => {
                 todo!();

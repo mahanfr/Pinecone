@@ -662,7 +662,7 @@ impl Lexer {
 }
 
 /// Code Location
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Hash)]
 pub struct Loc {
     /// code file path
     pub file_path: String,

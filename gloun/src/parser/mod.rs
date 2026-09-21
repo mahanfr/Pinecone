@@ -6,16 +6,21 @@ pub mod stmt;
 pub mod structs;
 pub mod types;
 pub mod variable_decl;
+pub mod namespace;
 use std::{collections::BTreeMap, fs};
 
 use crate::{
     lexer::{Lexer, TokenType, error},
     parser::{
-        functions::{FunctionDef, parse_function_definition},
-        structs::{StructType, struct_def},
-        variable_decl::{VariableDeclare, variable_declare},
+        functions::{FunctionDef, parse_function_definition}, namespace::Namespace, structs::{StructType, struct_def}, variable_decl::{VariableDeclare, variable_declare}
     },
 };
+
+#[derive(Debug)]
+pub struct ParserCxt {
+    lexer: Lexer,
+    ns: Namespace,
+}
 
 /// Top level program items
 #[derive(Debug, Clone)]

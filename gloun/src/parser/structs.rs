@@ -23,16 +23,17 @@
 *
 **********************************************************************************************/
 use crate::{
-    lexer::{Lexer, TokenType},
+    lexer::{Lexer, Loc, TokenType},
     parser::types::{VariableType, type_def},
 };
 use std::collections::HashMap;
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct StructType {
     pub public: bool,
     pub ident: String,
     pub items: HashMap<String, StructItemType>,
+    pub loc: Loc,
 }
 
 impl StructType {
@@ -57,6 +58,7 @@ impl StructItemType {
     }
 }
 pub fn struct_def(lexer: &mut Lexer, public: bool) -> StructType {
+    let loc = lexer.get_token_loc();
     lexer.match_token(TokenType::Struct);
     let struct_ident_token = lexer.get_token();
     lexer.match_token(TokenType::Identifier);
@@ -81,5 +83,6 @@ pub fn struct_def(lexer: &mut Lexer, public: bool) -> StructType {
         public,
         ident: struct_ident_token.literal,
         items,
+        loc,
     }
 }

@@ -24,7 +24,7 @@
 **********************************************************************************************/
 use crate::{
     lexer::{Lexer, TokenType, error},
-    parser::{expr::ExprType, variable_decl::raw_variable_declare},
+    parser::{blocks::Block, expr::ExprType, variable_decl::raw_variable_declare},
 };
 
 use super::{
@@ -80,7 +80,7 @@ impl AssignOp {
 }
 
 /// parse assignemts
-pub fn assign(lexer: &mut Lexer) -> Stmt {
+pub fn assign(lexer: &mut Lexer, block: &Block) -> Stmt {
     // Location to Start of the stmt
     let loc = lexer.get_token_loc();
     let left_expr = expr(lexer);

@@ -111,10 +111,10 @@ pub struct WhileStmt {
 }
 
 /// Parse If Stmts
-pub fn if_stmt(lexer: &mut Lexer, master: &mut Block) -> IFStmt {
+pub fn if_stmt(lexer: &mut Lexer, master: &Block) -> IFStmt {
     lexer.match_token(TokenType::If);
     let condition = expr(lexer);
-    let mut then_block = Block::new();
+    let mut then_block = Block::new(lexer, &master.id);
     then_block.parse_block(lexer);
     if lexer.get_token_type() == TokenType::Else {
         lexer.match_token(TokenType::Else);
@@ -126,7 +126,7 @@ pub fn if_stmt(lexer: &mut Lexer, master: &mut Block) -> IFStmt {
                 else_block,
             }
         } else {
-            let mut else_block = Block::new();
+            let mut else_block = Block::new(lexer, &master.id);
             else_block.parse_block(lexer);
             IFStmt {
                 condition,
@@ -144,7 +144,7 @@ pub fn if_stmt(lexer: &mut Lexer, master: &mut Block) -> IFStmt {
 }
 
 /// parse For Loops
-pub fn for_loop(lexer: &mut Lexer) -> ForLoop {
+pub fn for_loop(lexer: &mut Lexer, master: &Block) -> ForLoop {
     lexer.match_token(TokenType::For);
     let mut iterator = inline_variable_declare(lexer);
     if iterator.init_value.is_none() {
@@ -155,7 +155,7 @@ pub fn for_loop(lexer: &mut Lexer) -> ForLoop {
     }
     lexer.match_token(TokenType::To);
     let end_expr = expr(lexer);
-    let mut block = Block::new();
+    let mut block = Block::new(lexer, &master.id);
     block.parse_block(lexer);
     ForLoop {
         iterator,
@@ -165,10 +165,10 @@ pub fn for_loop(lexer: &mut Lexer) -> ForLoop {
 }
 
 /// Parse While Stmts
-pub fn while_stmt(lexer: &mut Lexer) -> WhileStmt {
+pub fn while_stmt(lexer: &mut Lexer, master: &Block) -> WhileStmt {
     lexer.match_token(TokenType::While);
     let condition = expr(lexer);
-    let mut block = Block::new();
+    let mut block = Block::new(lexer, &master.id);
     block.parse_block(lexer);
     WhileStmt { condition, block }
 }
