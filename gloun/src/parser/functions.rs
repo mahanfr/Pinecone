@@ -24,10 +24,10 @@
 **********************************************************************************************/
 use crate::{
     lexer::{Lexer, TokenType, error},
-    parser::{blocks::{Block}, types::type_def},
+    parser::{blocks::Block, types::type_def},
 };
 
-use super::{types::VariableType};
+use super::types::VariableType;
 
 /// Function Definition Arguments
 /// * ident - name of argument in function name space
@@ -82,10 +82,7 @@ pub fn parse_function_definition(lexer: &mut Lexer) -> FunctionDef {
     let decl = parse_function_declaration(lexer);
     let mut block = Block::new();
     block.parse_block(lexer);
-    FunctionDef {
-        decl,
-        block,
-    }
+    FunctionDef { decl, block }
 }
 
 /// Parsing Function definition

@@ -696,8 +696,8 @@ pub fn error(msg: impl ToString, loc: Loc) -> ! {
 
 #[cfg(test)]
 mod tests {
-    use ethnum::AsU256;
     use super::*;
+    use ethnum::AsU256;
 
     #[test]
     fn expr_tokens() {

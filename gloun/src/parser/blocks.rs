@@ -23,13 +23,14 @@
 *
 **********************************************************************************************/
 use crate::{
-    lexer::{Lexer, TokenType}, parser::stmt::Stmt
+    lexer::{Lexer, TokenType},
+    parser::stmt::Stmt,
 };
 
 use super::{
     assign::assign,
     expr::expr,
-    stmt::{for_loop, if_stmt, while_stmt, StmtType},
+    stmt::{StmtType, for_loop, if_stmt, while_stmt},
 };
 
 /// Block Stmt
@@ -41,9 +42,7 @@ pub struct Block {
 
 impl Block {
     pub fn new() -> Self {
-        Self {
-            stmts: Vec::new(),
-        }
+        Self { stmts: Vec::new() }
     }
 
     pub fn parse_stmt(&mut self, lexer: &mut Lexer) -> Stmt {

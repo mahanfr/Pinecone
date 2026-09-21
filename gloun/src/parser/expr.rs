@@ -342,13 +342,13 @@ pub fn factor(lexer: &mut Lexer) -> Expr {
             let op = Op::from_token_type(lexer.get_token_type());
             lexer.next_token();
             let value = factor(lexer);
-             Expr {
-                 etype: ExprType::Unary(UnaryExpr {
-                     right: Box::new(value),
-                     op,
-                 }),
-                 loc,
-             }
+            Expr {
+                etype: ExprType::Unary(UnaryExpr {
+                    right: Box::new(value),
+                    op,
+                }),
+                loc,
+            }
         }
         TokenType::String => {
             let str_token = lexer.get_token();

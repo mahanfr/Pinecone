@@ -44,15 +44,28 @@ pub enum CompilationError {
 impl Display for CompilationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::UndefinedVariable(v) => write!(f,"Undifiend Variable ({v})"),
-            Self::UndefinedNameSpace(v) => write!(f,"Undifiend Name Space ({v})"),
-            Self::UnknownType(v) => write!(f,"Unknown vaiable type ({v})"),
-            Self::UnexpectedType(t) => write!(f,"Unexpected type ({t})"),
-            Self::InvalidTypeCasting(a, b) => write!(f, "Types ({a}) and ({b}) can not be casted to eachother for this operation"),
-            Self::InValidBinaryOperation(op, a, b) => write!(f,"Invalid Operation ({op}) on types ({a}) and ({b})"),
-            Self::FunctionOutOfScope(s) => write!(f,"Error: Function {s} is not avaliable in this scope. Make sure you are calling the correct function"),
-            Self::InvalidInlineAsm(i) => write!(f,"Invalid Identifier for Inline asm instruct ({i})"),
-            Self::ImmutableVariable(v) => write!(f,"Variable ({v}) is not mutable. Did you forgot to define it with '=' insted of ':=' ?" ),
+            Self::UndefinedVariable(v) => write!(f, "Undifiend Variable ({v})"),
+            Self::UndefinedNameSpace(v) => write!(f, "Undifiend Name Space ({v})"),
+            Self::UnknownType(v) => write!(f, "Unknown vaiable type ({v})"),
+            Self::UnexpectedType(t) => write!(f, "Unexpected type ({t})"),
+            Self::InvalidTypeCasting(a, b) => write!(
+                f,
+                "Types ({a}) and ({b}) can not be casted to eachother for this operation"
+            ),
+            Self::InValidBinaryOperation(op, a, b) => {
+                write!(f, "Invalid Operation ({op}) on types ({a}) and ({b})")
+            }
+            Self::FunctionOutOfScope(s) => write!(
+                f,
+                "Error: Function {s} is not avaliable in this scope. Make sure you are calling the correct function"
+            ),
+            Self::InvalidInlineAsm(i) => {
+                write!(f, "Invalid Identifier for Inline asm instruct ({i})")
+            }
+            Self::ImmutableVariable(v) => write!(
+                f,
+                "Variable ({v}) is not mutable. Did you forgot to define it with '=' insted of ':=' ?"
+            ),
             Self::UnmatchingTypes(a, b) => write!(f, "Expected type ({a}), found type ({b})"),
             Self::NotLoopBlock => write!(f, "Can not break or continue out of non-loop blocks!"),
             Self::Err(e) => write!(f, "{e}"),
@@ -61,4 +74,3 @@ impl Display for CompilationError {
 }
 
 impl Error for CompilationError {}
-

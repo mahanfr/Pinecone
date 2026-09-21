@@ -22,8 +22,11 @@
 *     3. This notice may not be removed or altered from any source distribution.
 *
 **********************************************************************************************/
+use crate::{
+    lexer::{Lexer, TokenType},
+    parser::types::{VariableType, type_def},
+};
 use std::collections::HashMap;
-use crate::{lexer::{Lexer, TokenType}, parser::types::{VariableType, type_def}};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct StructType {
@@ -50,10 +53,7 @@ pub struct StructItemType {
 
 impl StructItemType {
     pub fn new(ident: String, vtype: VariableType) -> Self {
-        Self {
-            ident,
-            vtype,
-        }
+        Self { ident, vtype }
     }
 }
 pub fn struct_def(lexer: &mut Lexer, public: bool) -> StructType {
@@ -71,10 +71,7 @@ pub fn struct_def(lexer: &mut Lexer, public: bool) -> StructType {
         lexer.match_token(TokenType::Identifier);
         if lexer.get_token_type() == TokenType::ATSign {
             let ttype = type_def(lexer);
-            items.insert(
-                ident.clone(),
-                StructItemType::new(ident.clone(), ttype),
-            );
+            items.insert(ident.clone(), StructItemType::new(ident.clone(), ttype));
         }
         if lexer.get_token_type() != TokenType::CCurly {
             lexer.match_token(TokenType::Comma);

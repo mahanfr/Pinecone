@@ -2,7 +2,6 @@ use std::fmt::Display;
 
 use ethnum::u256;
 
-
 #[derive(Debug)]
 pub struct IonicMemory {
     data: Vec<u8>,
@@ -10,17 +9,17 @@ pub struct IonicMemory {
 
 impl IonicMemory {
     pub fn new() -> Self {
-        Self { data: Vec::new()}
+        Self { data: Vec::new() }
     }
 
     pub fn mload(&mut self, offset: u256) -> u256 {
         let offset = offset.as_usize();
-        if offset + 32 > self.data.len()  {
+        if offset + 32 > self.data.len() {
             return u256::ZERO;
         }
-        let data: [u8;32] = self.data[offset..offset + 32].try_into().unwrap();
+        let data: [u8; 32] = self.data[offset..offset + 32].try_into().unwrap();
         let imm = u256::from_le_bytes(data);
-        return imm
+        return imm;
     }
 
     pub fn mload8(&mut self, offset: u256, len: u256) -> Vec<u8> {
@@ -88,13 +87,17 @@ impl IonicMemory {
     }
 
     pub fn expantion_cost(&self, offset: u256, len: u256) -> u64 {
-        if len == 0 { return 0; }
+        if len == 0 {
+            return 0;
+        }
 
         let old_words = (self.data.len() / 32) as u64;
         let new_end = offset + len;
         let new_words = ((new_end + 31) / 32).as_u64();
 
-        if new_words <= old_words { return 0; }
+        if new_words <= old_words {
+            return 0;
+        }
 
         Self::memory_gas(new_words) - Self::memory_gas(old_words)
     }

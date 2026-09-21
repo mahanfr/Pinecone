@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::{lexer::{Lexer, TokenType}};
+use crate::lexer::{Lexer, TokenType};
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub enum VariableType {
@@ -85,7 +85,6 @@ impl VariableType {
     pub fn is_null(&self) -> bool {
         matches!(self, Self::Null)
     }
-
 }
 
 impl Display for VariableType {
@@ -132,7 +131,7 @@ fn parse_custom(lexer: &mut Lexer, typ_string: &str) -> VariableType {
             let key_type = VariableType::from_string(key_type_ident);
             let value_type = VariableType::from_string(value_type_ident);
             VariableType::Map(Box::new(key_type), Box::new(value_type))
-        },
+        }
         "List" => {
             lexer.match_token(TokenType::Smaller);
             let type_ident = lexer.get_token().literal;
@@ -141,7 +140,7 @@ fn parse_custom(lexer: &mut Lexer, typ_string: &str) -> VariableType {
 
             let typ = VariableType::from_string(type_ident);
             VariableType::List(Box::new(typ))
-        },
+        }
         _ => unreachable!("is_predifined_type() should be false"),
     }
 }

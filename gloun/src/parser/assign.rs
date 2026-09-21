@@ -22,10 +22,13 @@
 *     3. This notice may not be removed or altered from any source distribution.
 *
 **********************************************************************************************/
-use crate::{lexer::{Lexer, TokenType, error}, parser::{expr::ExprType, variable_decl::raw_variable_declare}};
+use crate::{
+    lexer::{Lexer, TokenType, error},
+    parser::{expr::ExprType, variable_decl::raw_variable_declare},
+};
 
 use super::{
-    expr::{expr, Expr},
+    expr::{Expr, expr},
     stmt::{Stmt, StmtType},
 };
 
@@ -93,7 +96,7 @@ pub fn assign(lexer: &mut Lexer) -> Stmt {
         if let ExprType::Variable(ident) = left_expr.etype {
             return Stmt {
                 stype: StmtType::VariableDecl(raw_variable_declare(lexer, ident)),
-                loc
+                loc,
             };
         } else {
             error(

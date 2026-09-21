@@ -2,9 +2,9 @@ use std::env::args;
 
 use crate::parser::parse_source_file;
 
+mod errors;
 mod lexer;
 mod parser;
-mod errors;
 
 pub fn main() {
     let mut args = args();

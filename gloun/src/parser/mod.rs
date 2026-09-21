@@ -1,14 +1,21 @@
+pub mod assign;
+pub mod blocks;
+pub mod expr;
+pub mod functions;
+pub mod stmt;
 pub mod structs;
 pub mod types;
-pub mod functions;
-pub mod blocks;
-pub mod stmt;
-pub mod assign;
 pub mod variable_decl;
-pub mod expr;
 use std::{collections::BTreeMap, fs};
 
-use crate::{lexer::{Lexer, TokenType, error}, parser::{functions::{FunctionDef, parse_function_definition}, structs::{StructType, struct_def}, variable_decl::{VariableDeclare, variable_declare}}};
+use crate::{
+    lexer::{Lexer, TokenType, error},
+    parser::{
+        functions::{FunctionDef, parse_function_definition},
+        structs::{StructType, struct_def},
+        variable_decl::{VariableDeclare, variable_declare},
+    },
+};
 
 /// Top level program items
 #[derive(Debug, Clone)]
@@ -54,12 +61,10 @@ pub fn generate_ast(lexer: &mut Lexer) -> Contracts {
                     lexer.get_token_type()
                 ),
                 loc,
-            )
+            ),
         }
     }
-    Contracts {
-        items: contracts,
-    }
+    Contracts { items: contracts }
 }
 
 pub fn parse_contract(lexer: &mut Lexer) -> Contract {
@@ -114,12 +119,14 @@ pub fn parse_contract(lexer: &mut Lexer) -> Contract {
                     );
                 }
             }
-            _ => todo!("{}",lexer.get_token().literal)
+            _ => todo!("{}", lexer.get_token().literal),
         }
         public = false;
-
     }
-    Contract { name: contract_name, items}
+    Contract {
+        name: contract_name,
+        items,
+    }
 }
 
 pub fn parse_source_file(path: String) -> Contracts {

@@ -28,7 +28,7 @@ use crate::{
 };
 
 use super::{
-    expr::{expr, Expr},
+    expr::{Expr, expr},
     types::VariableType,
 };
 
@@ -93,7 +93,7 @@ pub fn inline_variable_declare(lexer: &mut Lexer) -> VariableDeclare {
 
 pub fn raw_variable_declare(lexer: &mut Lexer, ident: String) -> VariableDeclare {
     let loc = lexer.get_token_loc();
-    let mut init_value : Option<Expr> = None;
+    let mut init_value: Option<Expr> = None;
     let mut v_type = VariableType::Null;
     match lexer.get_token_type() {
         TokenType::ColonEq => {
@@ -118,14 +118,20 @@ pub fn raw_variable_declare(lexer: &mut Lexer, ident: String) -> VariableDeclare
         }
     }
     lexer.match_token(TokenType::SemiColon);
-    VariableDeclare { public: false, ident, v_type, init_value, loc }
+    VariableDeclare {
+        public: false,
+        ident,
+        v_type,
+        init_value,
+        loc,
+    }
 }
 
 /// Parse Variable Declaration
 pub fn variable_declare(lexer: &mut Lexer, public: bool) -> VariableDeclare {
     let ident = lexer.get_token().literal;
     let loc = lexer.get_token_loc();
-    let mut init_value : Option<Expr> = None;
+    let mut init_value: Option<Expr> = None;
     let mut v_type = VariableType::Null;
     lexer.match_token(TokenType::Identifier);
     match lexer.get_token_type() {
@@ -151,5 +157,11 @@ pub fn variable_declare(lexer: &mut Lexer, public: bool) -> VariableDeclare {
         }
     }
     lexer.match_token(TokenType::SemiColon);
-    VariableDeclare { public, ident, v_type, init_value, loc }
+    VariableDeclare {
+        public,
+        ident,
+        v_type,
+        init_value,
+        loc,
+    }
 }

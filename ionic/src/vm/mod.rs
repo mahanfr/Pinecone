@@ -166,8 +166,7 @@ impl VirtualMachine {
                     self.stack.push((pc as u64).into());
                     gas += 1;
                 }
-                IonicInstr::ADDMOD
-                | IonicInstr::MULMOD => {
+                IonicInstr::ADDMOD | IonicInstr::MULMOD => {
                     let Some(c) = self.stack.pop() else {
                         return Err(VMExecutionError::StackUnderflow(pc, instr));
                     };
@@ -271,7 +270,13 @@ impl VirtualMachine {
         Ok(gas)
     }
 
-    fn eval_ternary(pc: usize, op: IonicInstr, a: u256, b: u256, c: u256) -> Result<u256, VMExecutionError> {
+    fn eval_ternary(
+        pc: usize,
+        op: IonicInstr,
+        a: u256,
+        b: u256,
+        c: u256,
+    ) -> Result<u256, VMExecutionError> {
         use IonicInstr::*;
         let output = match op {
             ADDMOD => a.checked_add(b).map(|x| x.checked_rem(c)),
