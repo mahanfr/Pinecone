@@ -9,4 +9,5 @@ pub mod transactions;
 pub mod types;
 pub mod utils;
 pub mod verkletrie;
+pub mod merkletrie;
 pub mod vm;

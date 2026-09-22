@@ -83,12 +83,6 @@ impl<T: Clone + ToBytes> SparseVerkleTrie<T> {
             }
             let z = self.kzg.domain.element(level.index as usize);
             batch.push((current_commitment, z, level.evaluation, level.kzg_proof));
-            // if !self
-            //     .kzg
-            //     .verify(current_commitment, z, level.evaluation, level.kzg_proof)
-            // {
-            //     return false;
-            // }
             let expected_scalar = KZG::hash_g1_to_scalar(&level.child_commitment);
             if level.evaluation != expected_scalar {
                 return false;
@@ -244,15 +238,6 @@ impl<T: Clone + ToBytes> VerkleNode<T> {
                 if !branch.dirty {
                     return branch.commitment;
                 }
-                // let mut coefficients = vec![Fr::zero(); ARITY];
-                // for i in 0..ARITY {
-                //     if let Some(child) = branch.children[i].as_deref_mut() {
-                //         let child_commitment = child.commit(kzg);
-                //         coefficients[i] = KZG::hash_g1_to_scalar(&child_commitment);
-                //     }
-                // }
-                // let evals = Evaluations::from_vec_and_domain(coefficients, kzg.domain);
-                // let poly = evals.interpolate();
                 let mut entries = Vec::with_capacity(branch.occupied.len());
                 for &index in &branch.occupied {
                     let child = branch.children[index as usize].as_mut().unwrap();
