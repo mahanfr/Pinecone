@@ -1,5 +1,3 @@
-use std::hash::{DefaultHasher, Hash, Hasher};
-
 /**********************************************************************************************
 *
 *   parser/block: parse blocks syntax (e.g: if/while block)
@@ -26,7 +24,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 **********************************************************************************************/
 use crate::{
     lexer::{Lexer, TokenType},
-    parser::stmt::Stmt,
+    parser::{stmt::Stmt, variable_decl::VariableDeclare},
 };
 
 use super::{
@@ -35,37 +33,51 @@ use super::{
     stmt::{StmtType, for_loop, if_stmt, while_stmt},
 };
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct BlockId(pub usize);
+
 /// Block Stmt
 /// Holds a list of stmt in a block of code
 #[derive(Debug, Clone)]
 pub struct Block {
-    pub id: String,
     pub stmts: Vec<Stmt>,
+    pub variables: Vec<VariableDeclare>,
+    pub master: Option<BlockId>,
 }
 
-impl Block {
-    pub fn new(lexer: &Lexer, prev_id: &str) -> Self {
-        Self { id: Self::new_id(lexer, prev_id), stmts: Vec::new() }
-    }
+#[derive(Debug, Clone, Default)]
+pub struct BlockTree {
+    pub blocks: Vec<Block>,
+}
 
-    pub fn new_id(lexer: &Lexer, prev_id: &str) -> String {
-        let mut prev_id = prev_id.to_string();
-        prev_id.push_str(&Self::unique_id(lexer));
-        prev_id
-    }
-
-    pub fn unique_id(lexer: &Lexer) -> String {
-        let mut id = String::new();
-        id.push('_');
-        let loc = lexer.get_token_loc();
-        let mut hasher = DefaultHasher::new();
-        loc.hash(&mut hasher);
-        let key = hasher.finish().to_string();
-        id.push_str(&key);
+impl BlockTree {
+    pub fn new_block(&mut self, master: Option<BlockId>) -> BlockId {
+        let id = BlockId(self.blocks.len());
+        self.blocks.push(Block {
+            stmts: Vec::new(),
+            variables: Vec::new(),
+            master,
+        });
         id
     }
 
-    pub fn parse_stmt(&self, lexer: &mut Lexer) -> Stmt {
+    pub fn get_variable(&self, id: BlockId, ident: &str) -> Option<VariableDeclare> {
+        let b = &self.blocks[id.0];
+        for var in b.variables.iter().rev() {
+            if var.ident == ident {
+                return Some(var.clone());
+            }
+        }
+        b.master.and_then(|p| self.get_variable(p, ident))
+    }
+
+    pub fn set_variable(&mut self, id: BlockId, decl: VariableDeclare) {
+        let b = self.blocks.get_mut(id.0).unwrap();
+        b.variables.push(decl);
+    }
+}
+impl Block {
+    pub fn parse_stmt(ast: &mut BlockTree, current: BlockId, lexer: &mut Lexer) -> Stmt {
         match lexer.get_token_type() {
             TokenType::Print => {
                 let loc = lexer.get_token_loc();
@@ -101,21 +113,21 @@ impl Block {
             TokenType::If => {
                 let loc = lexer.get_token_loc();
                 Stmt {
-                    stype: StmtType::If(if_stmt(lexer, self)),
+                    stype: StmtType::If(if_stmt(ast, current, lexer)),
                     loc,
                 }
             }
             TokenType::While => {
                 let loc = lexer.get_token_loc();
                 Stmt {
-                    stype: StmtType::While(while_stmt(lexer, self)),
+                    stype: StmtType::While(while_stmt(ast, current, lexer)),
                     loc,
                 }
             }
             TokenType::For => {
                 let loc = lexer.get_token_loc();
                 Stmt {
-                    stype: StmtType::ForLoop(for_loop(lexer, self)),
+                    stype: StmtType::ForLoop(for_loop(ast, current, lexer)),
                     loc,
                 }
             }
@@ -131,7 +143,7 @@ impl Block {
             }
             TokenType::Identifier => {
                 //Assgin Op
-                assign(lexer, self)
+                assign(ast, current, lexer)
             }
             _ => {
                 todo!();
@@ -143,16 +155,15 @@ impl Block {
     /// # Argumenrs
     /// * lexer - address of mutable lexer
     ///     Returns a vec of stmts
-    pub fn parse_block(&mut self, lexer: &mut Lexer) {
+    pub fn parse_block(ast: &mut BlockTree, current: BlockId, lexer: &mut Lexer) {
         lexer.match_token(TokenType::OCurly);
-        let mut stmts = Vec::<Stmt>::new();
         loop {
             if lexer.get_token_type() == TokenType::CCurly {
                 break;
             }
-            stmts.push(self.parse_stmt(lexer));
+            let stmt = Self::parse_stmt(ast, current, lexer);
+            ast.blocks[current.0].stmts.push(stmt);
         }
         lexer.match_token(TokenType::CCurly);
-        self.stmts.extend_from_slice(&stmts);
     }
 }

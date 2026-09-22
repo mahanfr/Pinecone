@@ -23,8 +23,11 @@
 *
 **********************************************************************************************/
 use crate::{
-    lexer::{Lexer, Loc, TokenType , error},
-    parser::{blocks::Block, types::type_def},
+    lexer::{Lexer, Loc, TokenType, error},
+    parser::{
+        blocks::{Block, BlockTree},
+        types::type_def,
+    },
 };
 
 use super::types::VariableType;
@@ -46,7 +49,7 @@ pub struct FunctionArg {
 #[derive(Debug, Clone)]
 pub struct FunctionDef {
     pub decl: FunctionDecl,
-    pub block: Block,
+    pub ast: BlockTree,
 }
 
 #[derive(Debug, Clone)]
@@ -82,9 +85,10 @@ pub fn parse_function_declaration(lexer: &mut Lexer) -> FunctionDecl {
 /// Parsing Function definition
 pub fn parse_function_definition(lexer: &mut Lexer) -> FunctionDef {
     let decl = parse_function_declaration(lexer);
-    let mut block = Block::new(lexer, &decl.ident);
-    block.parse_block(lexer);
-    FunctionDef { decl, block }
+    let mut ast = BlockTree::default();
+    let root = ast.new_block(None);
+    Block::parse_block(&mut ast, root, lexer);
+    FunctionDef { decl, ast }
 }
 
 /// Parsing Function definition

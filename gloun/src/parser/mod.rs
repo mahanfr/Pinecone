@@ -6,39 +6,34 @@ pub mod stmt;
 pub mod structs;
 pub mod types;
 pub mod variable_decl;
-pub mod namespace;
-use std::{collections::BTreeMap, fs};
+use std::{collections::HashMap, fs};
 
 use crate::{
     lexer::{Lexer, TokenType, error},
     parser::{
-        functions::{FunctionDef, parse_function_definition}, namespace::Namespace, structs::{StructType, struct_def}, variable_decl::{VariableDeclare, variable_declare}
+        functions::{FunctionDecl, FunctionDef, parse_function_definition},
+        structs::{StructType, struct_def},
+        variable_decl::{VariableDeclare, variable_declare},
     },
 };
 
-#[derive(Debug)]
-pub struct ParserCxt {
-    lexer: Lexer,
-    ns: Namespace,
-}
-
 /// Top level program items
 #[derive(Debug, Clone)]
-pub enum ContractItem {
+pub enum ContractItemType {
     /// Enums
     Enum,
     /// Struct Defenition
     Struct(StructType),
     /// Function Definitions
-    Func(FunctionDef),
-    /// Global Variable
-    GBVariable(VariableDeclare),
+    Func(FunctionDecl),
 }
 
 #[derive(Debug, Clone)]
 pub struct Contract {
     pub name: String,
-    pub items: BTreeMap<String, ContractItem>,
+    pub funcs: Vec<FunctionDef>,
+    pub variables: HashMap<String, VariableDeclare>,
+    pub types: HashMap<String, ContractItemType>,
 }
 
 #[derive(Debug, Clone)]
@@ -77,14 +72,15 @@ pub fn parse_contract(lexer: &mut Lexer) -> Contract {
     let contract_name = lexer.get_token().literal;
     lexer.match_token(TokenType::Identifier);
     lexer.match_token(TokenType::OCurly);
-    let mut items = BTreeMap::<String, ContractItem>::new();
+    let mut funcs = Vec::<FunctionDef>::new();
+    let mut variables = HashMap::new();
+    let mut types = HashMap::new();
     let mut public = false;
     loop {
         if lexer.get_token_type() == TokenType::CCurly {
             lexer.match_token(TokenType::CCurly);
             break;
         }
-        let loc = lexer.get_token_loc();
         match lexer.get_token_type() {
             TokenType::Public => {
                 lexer.match_token(TokenType::Public);
@@ -94,22 +90,13 @@ pub fn parse_contract(lexer: &mut Lexer) -> Contract {
             TokenType::Func => {
                 let function_def = parse_function_definition(lexer);
                 let ident = function_def.decl.ident.clone();
-                if let Some(_) = items.insert(ident.clone(), ContractItem::Func(function_def)) {
-                    error(
-                        format!("Function with the name {} already exists", ident),
-                        loc,
-                    );
-                }
+                types.insert(ident, ContractItemType::Func(function_def.decl.clone()));
+                funcs.push(function_def);
             }
             TokenType::Struct => {
                 let struct_def = struct_def(lexer, public);
                 let ident = struct_def.ident.clone();
-                if let Some(_) = items.insert(ident.clone(), ContractItem::Struct(struct_def)) {
-                    error(
-                        format!("Struct with the name {} already exists", ident.clone()),
-                        loc,
-                    );
-                }
+                types.insert(ident, ContractItemType::Struct(struct_def));
             }
             TokenType::Identifier => {
                 // public a := 0;
@@ -117,12 +104,7 @@ pub fn parse_contract(lexer: &mut Lexer) -> Contract {
                 // public a @u128;
                 let var_decl = variable_declare(lexer, public);
                 let ident = var_decl.ident.clone();
-                if let Some(_) = items.insert(ident.clone(), ContractItem::GBVariable(var_decl)) {
-                    error(
-                        format!("Variable with the name {} already exists", ident.clone()),
-                        loc,
-                    );
-                }
+                variables.insert(ident, var_decl);
             }
             _ => todo!("{}", lexer.get_token().literal),
         }
@@ -130,7 +112,9 @@ pub fn parse_contract(lexer: &mut Lexer) -> Contract {
     }
     Contract {
         name: contract_name,
-        items,
+        funcs,
+        types,
+        variables,
     }
 }
 

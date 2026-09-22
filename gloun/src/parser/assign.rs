@@ -24,7 +24,11 @@
 **********************************************************************************************/
 use crate::{
     lexer::{Lexer, TokenType, error},
-    parser::{blocks::Block, expr::ExprType, variable_decl::raw_variable_declare},
+    parser::{
+        blocks::{BlockId, BlockTree},
+        expr::ExprType,
+        variable_decl::raw_variable_declare,
+    },
 };
 
 use super::{
@@ -80,7 +84,7 @@ impl AssignOp {
 }
 
 /// parse assignemts
-pub fn assign(lexer: &mut Lexer, block: &Block) -> Stmt {
+pub fn assign(ast: &mut BlockTree, current: BlockId, lexer: &mut Lexer) -> Stmt {
     // Location to Start of the stmt
     let loc = lexer.get_token_loc();
     let left_expr = expr(lexer);
@@ -94,8 +98,10 @@ pub fn assign(lexer: &mut Lexer, block: &Block) -> Stmt {
         }
     } else if token_type == TokenType::ColonEq || token_type == TokenType::ATSign {
         if let ExprType::Variable(ident) = left_expr.etype {
+            let var_decl = raw_variable_declare(lexer, ident);
+            ast.set_variable(current, var_decl.clone());
             return Stmt {
-                stype: StmtType::VariableDecl(raw_variable_declare(lexer, ident)),
+                stype: StmtType::VariableDecl(var_decl),
                 loc,
             };
         } else {

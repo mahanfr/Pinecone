@@ -2,6 +2,10 @@
 resolver = "3"
 members = ["ionic","iovault","gloun"]
 
+[workspace.lints.rust]
+unused_variables = "allow"
+dead_code = "allow"
+
 [workspace.dependencies]
 log = "0.4"
 base64 = "0.23"
