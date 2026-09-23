@@ -1,7 +1,7 @@
 mod wallet;
 
 use clap::{Parser, Subcommand};
-use ionic::{accounts::Account, keygen::generate_key_pair, types::IonicAddr};
+use ionic::{accounts::Account, keygen::generate_key_pair, merkletrie::SparseMerkleTrie, types::IonicAddr};
 
 use crate::wallet::Wallet;
 
@@ -38,6 +38,7 @@ fn main() {
         nonce: 0,
         balance: 1_000_000_000,
         code: Vec::new(),
+        storage: SparseMerkleTrie::new(),
     };
     wallet.set_account_info(account);
 

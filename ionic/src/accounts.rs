@@ -1,6 +1,7 @@
+use ethnum::u256;
+
 use crate::{
-    read_bytes,
-    utils::{FromBytes, ToBytes},
+    merkletrie::SparseMerkleTrie, read_bytes, serialization::CodecError, utils::{FromBytes, ToBytes}
 };
 
 const ACCOUNT_DOMAIN: &[u8] = b"IONIC_ACCOUNT_V1";
@@ -9,6 +10,7 @@ const ACCOUNT_DOMAIN: &[u8] = b"IONIC_ACCOUNT_V1";
 pub struct Account {
     pub nonce: u64,
     pub balance: u128,
+    pub storage: SparseMerkleTrie<u256>,
     pub code: Vec<u8>,
 }
 
@@ -23,6 +25,7 @@ impl Account {
         Self {
             nonce: 0,
             balance: 0,
+            storage: SparseMerkleTrie::new(),
             code: Vec::new(),
         }
     }
@@ -36,12 +39,14 @@ impl ToBytes for Account {
         bytes.extend_from_slice(&self.balance.to_le_bytes());
         bytes.extend_from_slice(&(self.code.len() as u64).to_le_bytes());
         bytes.extend_from_slice(&self.code);
+        bytes.extend_from_slice(&self.storage.to_bytes());
         bytes
     }
 }
 
 impl FromBytes for Account {
-    fn from_bytes(bytes: &[u8]) -> Self {
+    type Error = CodecError;
+    fn from_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
         // Byte stream Walker
         let mut w = ACCOUNT_DOMAIN.len();
         assert_eq!(&bytes[0..w], ACCOUNT_DOMAIN);
@@ -55,31 +60,44 @@ impl FromBytes for Account {
         let code_size = u64::from_le_bytes(*code_size_slice) as usize;
 
         let code = read_bytes!(bytes, w, code_size).to_vec();
-        let _ = w;
-        Self {
+        let storage = SparseMerkleTrie::<u256>::from_bytes(&bytes[w..]).unwrap();
+        Ok(Self {
             nonce,
             balance,
             code,
-        }
+            storage
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        accounts::Account,
-        utils::{FromBytes, ToBytes},
+    use ethnum::AsU256;
+
+use crate::{
+        accounts::Account, merkletrie::SparseMerkleTrie, utils::{FromBytes, ToBytes}
     };
+
+    fn key(x: u8) -> [u8; 32] {
+        let mut k = [0u8; 32];
+        k[31] = x;
+        k
+    }
 
     #[test]
     pub fn encode_decode() {
+        let mut storage = SparseMerkleTrie::new();
+        storage.insert(&key(1), 0.as_u256()).unwrap();
+        storage.insert(&key(2), 1.as_u256()).unwrap();
+        storage.insert(&key(3), 2.as_u256()).unwrap();
         let account = Account {
             nonce: 55,
             balance: 500,
             code: vec![1, 2, 3],
+            storage,
         };
         let bytes = account.to_bytes();
-        let encoded_account = Account::from_bytes(&bytes);
+        let encoded_account = Account::from_bytes(&bytes).unwrap();
         assert_eq!(account, encoded_account);
     }
 }

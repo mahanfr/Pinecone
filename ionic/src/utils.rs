@@ -1,6 +1,7 @@
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{array::TryFromSliceError, time::{SystemTime, UNIX_EPOCH}};
 
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD_INDIFFERENT};
+use ethnum::u256;
 
 pub trait ToBytes {
     fn to_bytes(&self) -> Vec<u8>;
@@ -12,8 +13,30 @@ impl ToBytes for u32 {
     }
 }
 
-pub trait FromBytes {
-    fn from_bytes(bytes: &[u8]) -> Self;
+impl FromBytes for u32 {
+    type Error = TryFromSliceError;
+    fn from_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
+        Ok(u32::from_le_bytes(bytes[..4].try_into()?))
+    }
+}
+
+impl ToBytes for u256 {
+    fn to_bytes(&self) -> Vec<u8> {
+        self.to_le_bytes().to_vec()
+    }
+}
+
+impl FromBytes for u256 {
+    type Error = TryFromSliceError;
+
+    fn from_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
+        Ok(u256::from_le_bytes(bytes[..32].try_into()?))
+    }
+}
+
+pub trait FromBytes: Sized {
+    type Error: std::error::Error;
+    fn from_bytes(bytes: &[u8]) -> Result<Self, Self::Error>;
 }
 
 pub fn current_timestamp() -> u64 {

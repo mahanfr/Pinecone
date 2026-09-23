@@ -10,4 +10,5 @@ pub mod types;
 pub mod utils;
 pub mod verkletrie;
 pub mod merkletrie;
+pub mod serialization;
 pub mod vm;

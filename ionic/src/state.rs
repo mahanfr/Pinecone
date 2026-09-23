@@ -1,8 +1,7 @@
+use ethnum::u256;
+
 use crate::{
-    accounts::Account,
-    transactions::{Transaction, TransactionError},
-    types::IonicAddr,
-    verkletrie::{SparseVerkleTrie, TrieError},
+    accounts::Account, merkletrie::SparseMerkleTrie, transactions::{Transaction, TransactionError}, types::IonicAddr, verkletrie::{SparseVerkleTrie, TrieError}
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -85,6 +84,7 @@ impl IonicState {
             balance,
             nonce: account.nonce + 1,
             code: account.code.clone(),
+            storage: SparseMerkleTrie::<u256>::new(),
         };
         // Apply
         // TODO: Verkletrie should have a buffer qeueue that then applies the changes.

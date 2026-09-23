@@ -1,11 +1,7 @@
 use std::fmt::Display;
 
 use crate::{
-    accounts::Account,
-    blocks::Block,
-    state::IonicState,
-    transactions::TransactionError,
-    types::{IonicAddr, IonicHash, IonicPK},
+    accounts::Account, blocks::Block, merkletrie::SparseMerkleTrie, state::IonicState, transactions::TransactionError, types::{IonicAddr, IonicHash, IonicPK}
 };
 
 #[derive(Debug)]
@@ -30,6 +26,7 @@ impl Blockchain {
             balance,
             nonce,
             code: Vec::new(),
+            storage: SparseMerkleTrie::new(),
         };
         self.state.add_account(addr, account).unwrap();
     }

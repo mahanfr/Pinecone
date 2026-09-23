@@ -1,13 +1,19 @@
-use crate::{utils::ToBytes, verkletrie::TrieError};
+use ethnum::AsU256;
+
+use crate::{serialization::{CodecError, read_slice, read_uvarint, write_uvarint}, types::IonicHash, utils::{FromBytes, ToBytes}, verkletrie::TrieError};
 
 const KEY_LEN: usize = 32;
 pub const ARITY: usize = 256;
-const HASH_LEN: usize = 32;
 const MERKLE_LEAF_DOMAIN: &[u8] = b"IONIC_MERKLE_LEAF_V1";
 const MERKLE_BRANCH_DOMAIN: &[u8] = b"IONIC_MERKLE_BRANCH_V1";
-const EMPTY_HASH: [u8; HASH_LEN] = [0u8; HASH_LEN];
+const MERKLE_EMPTY_HASH_DOMAIN: &[u8] = b"IONIC_MERKLE_EMPTY_HASH";
 
-#[derive(Debug)]
+const SERIALIZATION_VERSION: u8 = 1;
+const TAG_EMPTY: u8 = 0;
+const TAG_LEAF: u8 = 1;
+const TAG_BRANCH: u8 = 2;
+
+#[derive(Debug, Clone)]
 pub struct SparseMerkleTrie<T: ToBytes + Clone> {
     root: MerkleNode<T>,
 }
@@ -15,6 +21,14 @@ pub struct SparseMerkleTrie<T: ToBytes + Clone> {
 impl<T: Clone + ToBytes> Default for SparseMerkleTrie<T> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl<T: Clone + ToBytes> PartialEq for SparseMerkleTrie<T> {
+    fn eq(&self, other: &Self) -> bool {
+        let mut this = self.clone();
+        let mut other = other.clone();
+        this.root_hash() == other.root_hash()
     }
 }
 
@@ -41,16 +55,45 @@ impl<T: Clone + ToBytes> SparseMerkleTrie<T> {
         Ok(self.root.delete(key, 0))
     }
 
-    pub fn root_hash(&mut self) -> [u8; HASH_LEN] {
+    pub fn root_hash(&mut self) -> IonicHash {
         self.root.hash()
+    }
+
+    pub fn static_root_hash(&self) -> IonicHash {
+        self.root.static_hash()
     }
 }
 
-#[derive(Debug)]
+impl<T: Clone + ToBytes + FromBytes> SparseMerkleTrie<T> {
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut buf = Vec::new();
+        buf.push(SERIALIZATION_VERSION);
+        self.root.encode(&mut buf);
+        buf
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, CodecError> {
+        let mut cursor = 0usize;
+        let version = *bytes.get(cursor).ok_or(CodecError::UnexpectedEof)?;
+        cursor += 1;
+        if version != SERIALIZATION_VERSION {
+            return Err(CodecError::InvalidTag(version));
+        }
+        let mut key = [0u8; KEY_LEN];
+        let root = MerkleNode::decode(bytes, &mut cursor, &mut key, 0)?;
+        if cursor != bytes.len() {
+            return Err(CodecError::TrailingBytes);
+        }
+        Ok(Self { root })
+    }
+}
+
+
+#[derive(Debug, Clone)]
 struct MerkleNodeBranch<T: ToBytes + Clone> {
     children: Vec<Option<Box<MerkleNode<T>>>>,
     occupied: Vec<u8>,
-    hash: [u8; HASH_LEN],
+    hash: IonicHash,
     dirty: bool,
 }
 
@@ -59,19 +102,19 @@ impl<T: ToBytes + Clone> MerkleNodeBranch<T> {
         Self {
             children: empty_children(),
             occupied: Vec::new(),
-            hash: EMPTY_HASH,
+            hash: empty_hash(),
             dirty: false,
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct MerkleNodeLeaf<T: ToBytes + Clone> {
     value: T,
-    hash: [u8; HASH_LEN],
+    hash: IonicHash,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum MerkleNode<T: ToBytes + Clone> {
     Empty,
     Leaf(MerkleNodeLeaf<T>),
@@ -170,9 +213,22 @@ impl<T: Clone + ToBytes> MerkleNode<T> {
         }
     }
 
-    pub fn hash(&mut self) -> [u8; HASH_LEN] {
+    pub fn static_hash(&self) -> IonicHash {
         match self {
-            Self::Empty => EMPTY_HASH,
+            Self::Empty => empty_hash(),
+            Self::Leaf(leaf) => leaf.hash,
+            Self::Branch(b) => {
+                if b.dirty {
+                    panic!("Call hash() with mutable ref by generating root_hash first")
+                }
+                b.hash
+            },
+        }
+    }
+
+    pub fn hash(&mut self) -> IonicHash {
+        match self {
+            Self::Empty => empty_hash(),
             Self::Leaf(leaf) => leaf.hash,
             Self::Branch(branch) => {
                 if !branch.dirty {
@@ -184,13 +240,79 @@ impl<T: Clone + ToBytes> MerkleNode<T> {
                     let child = branch.children[index as usize].as_mut().unwrap();
                     let child_hash = child.hash();
                     bytes.push(index);
-                    bytes.extend_from_slice(&child_hash);
+                    bytes.extend_from_slice(child_hash.as_ref());
                 }
-                let hash: [u8; HASH_LEN] = *blake3::hash(&bytes).to_owned().as_bytes();
+                let hash: IonicHash = blake3::hash(&bytes).to_owned().into();
                 branch.hash = hash;
                 branch.dirty = false;
                 hash
             }
+        }
+    }
+
+    fn encode(&self, buf: &mut Vec<u8>) {
+        match self {
+            Self::Empty => buf.push(TAG_EMPTY),
+            Self::Leaf(leaf) => {
+                buf.push(TAG_LEAF);
+                let value_bytes = leaf.value.to_bytes();
+                write_uvarint(buf, value_bytes.len().as_u256());
+                buf.extend_from_slice(&value_bytes);
+            }
+            Self::Branch(branch) => {
+                buf.push(TAG_BRANCH);
+                write_uvarint(buf, branch.occupied.len().as_u256());
+                for &index in &branch.occupied {
+                    buf.push(index);
+                    branch.children[index as usize]
+                        .as_ref()
+                        .unwrap()
+                        .encode(buf);
+                }
+            }
+        }
+    }
+}
+
+impl<T: Clone + ToBytes + FromBytes> MerkleNode<T> {
+    fn decode(
+        bytes: &[u8],
+        cursor: &mut usize,
+        key: &mut [u8; KEY_LEN],
+        depth: usize,
+    ) -> Result<Self, CodecError> {
+        let tag = *bytes.get(*cursor).ok_or(CodecError::UnexpectedEof)?;
+        *cursor += 1;
+        match tag {
+            TAG_EMPTY => Ok(Self::Empty),
+            TAG_LEAF => {
+                let value_len = read_uvarint(bytes, cursor)?.as_usize();
+                let value_bytes = read_slice(bytes, cursor, value_len)?;
+                let value =
+                    T::from_bytes(value_bytes).map_err(|e| CodecError::Value(e.to_string()))?;
+                let hash = leaf_hash(&key[..], value_bytes);
+                Ok(Self::Leaf(MerkleNodeLeaf { value, hash }))
+            }
+            TAG_BRANCH => {
+                let count = read_uvarint(bytes, cursor)?.as_usize();
+                let mut children = empty_children();
+                let mut occupied = Vec::with_capacity(count);
+                for _ in 0..count {
+                    let index = *bytes.get(*cursor).ok_or(CodecError::UnexpectedEof)?;
+                    *cursor += 1;
+                    key[depth] = index;
+                    let child = MerkleNode::decode(bytes, cursor, key, depth + 1)?;
+                    children[index as usize] = Some(Box::new(child));
+                    occupied.push(index);
+                }
+                Ok(Self::Branch(MerkleNodeBranch {
+                    children,
+                    occupied,
+                    hash: empty_hash(),
+                    dirty: true,
+                }))
+            }
+            other => Err(CodecError::InvalidTag(other)),
         }
     }
 }
@@ -209,12 +331,16 @@ fn empty_children<T: ToBytes + Clone>() -> Vec<Option<Box<MerkleNode<T>>>> {
     (0..ARITY).map(|_| None).collect()
 }
 
-fn leaf_hash(key: &[u8], value: &[u8]) -> [u8; HASH_LEN] {
+fn leaf_hash(key: &[u8], value: &[u8]) -> IonicHash {
     let mut bytes = Vec::new();
     bytes.extend_from_slice(MERKLE_LEAF_DOMAIN);
     bytes.extend_from_slice(key);
     bytes.extend_from_slice(value);
-    *blake3::hash(&bytes).to_owned().as_bytes()
+    blake3::hash(&bytes).to_owned().into()
+}
+
+fn empty_hash() -> IonicHash {
+    blake3::hash(MERKLE_EMPTY_HASH_DOMAIN).to_owned().into()
 }
 
 #[cfg(test)]
@@ -279,5 +405,31 @@ mod tests {
         trie_b.insert(&key(1), 100).unwrap();
 
         assert_eq!(trie_a.root_hash(), trie_b.root_hash());
+    }
+
+    #[test]
+    fn serialization_round_trips_and_hash_matches() {
+        let mut trie = SparseMerkleTrie::new();
+        trie.insert(&key(1), 100).unwrap();
+        trie.insert(&key(2), 420).unwrap();
+        trie.insert(&key(250), 7).unwrap();
+        let root_before = trie.root_hash();
+
+        let bytes = trie.to_bytes();
+        let mut restored = SparseMerkleTrie::<u32>::from_bytes(&bytes).unwrap();
+
+        assert_eq!(restored.get(&key(1)).unwrap(), Some(&100));
+        assert_eq!(restored.get(&key(2)).unwrap(), Some(&420));
+        assert_eq!(restored.get(&key(250)).unwrap(), Some(&7));
+        assert_eq!(restored.root_hash(), root_before);
+    }
+
+    #[test]
+    fn serialization_rejects_trailing_bytes() {
+        let mut trie = SparseMerkleTrie::new();
+        trie.insert(&key(1), 100).unwrap();
+        let mut bytes = trie.to_bytes();
+        bytes.push(0xff);
+        assert!(SparseMerkleTrie::<u32>::from_bytes(&bytes).is_err());
     }
 }
