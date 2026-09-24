@@ -66,9 +66,9 @@ pub enum IonicOpcode {
     SSTORE = 0x55,   // TODO
     JUMP = 0x56,     // TODO
     JUMPI = 0x57,    // TODO
-    PC = 0x58,       // TODO
+    PC = 0x58,
     MSIZE = 0x59,    // TODO
-    GAS = 0x5A,      // TODO
+    GAS = 0x5A,
     JUMPDEST = 0x5B, // TODO
     TLOAD = 0x5C,    // TODO
     TSTORE = 0x5D,   // TODO

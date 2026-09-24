@@ -75,6 +75,9 @@ impl VirtualMachine {
                 ISZERO | NOT => self.eval_unary(&instr.opcode)?,
                 ADDMOD | MULMOD => self.eval_ternary(&instr.opcode)?,
                 CALLER => self.address(tx.sender()),
+                POP => self.pop()?,
+                PC => self.pc(),
+                GAS => self.gas(),
                 PUSH0 | PUSH1 | PUSH2 | PUSH3 | PUSH4 | PUSH5 | PUSH6 | PUSH7 | PUSH8 | PUSH9
                 | PUSH10 | PUSH11 | PUSH12 | PUSH13 | PUSH14 | PUSH15 | PUSH16 | PUSH17
                 | PUSH18 | PUSH19 | PUSH20 | PUSH21 | PUSH22 | PUSH23 | PUSH24 | PUSH25
@@ -87,7 +90,6 @@ impl VirtualMachine {
                         return Err(VMExecutionError::SyntaxError(instr));
                     }
                 }
-                POP => self.pop()?,
                 DUP1 | DUP2 | DUP3 | DUP4 | DUP5 | DUP6 | DUP7 | DUP8 | DUP9 | DUP10 | DUP11
                 | DUP12 | DUP13 | DUP14 | DUP15 | DUP16 => self.dup(
                     instr
@@ -269,6 +271,18 @@ impl VirtualMachine {
         self.gas_used += opcode.gas().unwrap_or_default();
         self.pc += 1;
         Ok(())
+    }
+
+    fn pc(&mut self) {
+        self.stack.push(self.pc.as_u256());
+        self.pc += 1;
+        self.gas_used += 2;
+    }
+
+    fn gas(&mut self) {
+        self.stack.push(self.gas_used.as_u256());
+        self.pc += 1;
+        self.gas_used += 2;
     }
 
     fn address(&mut self, sender: IonicAddr) {
