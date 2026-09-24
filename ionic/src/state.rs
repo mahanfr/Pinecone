@@ -1,7 +1,11 @@
 use ethnum::u256;
 
 use crate::{
-    accounts::Account, merkletrie::SparseMerkleTrie, transactions::{Transaction, TransactionError}, types::IonicAddr, verkletrie::{SparseVerkleTrie, TrieError}
+    accounts::Account,
+    merkletrie::SparseMerkleTrie,
+    transactions::{Transaction, TransactionError},
+    types::IonicAddr,
+    verkletrie::{SparseVerkleTrie, TrieError},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

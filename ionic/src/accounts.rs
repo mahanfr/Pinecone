@@ -1,7 +1,10 @@
 use ethnum::u256;
 
 use crate::{
-    merkletrie::SparseMerkleTrie, read_bytes, serialization::CodecError, utils::{FromBytes, ToBytes}
+    merkletrie::SparseMerkleTrie,
+    read_bytes,
+    serialization::CodecError,
+    utils::{FromBytes, ToBytes},
 };
 
 const ACCOUNT_DOMAIN: &[u8] = b"IONIC_ACCOUNT_V1";
@@ -65,7 +68,7 @@ impl FromBytes for Account {
             nonce,
             balance,
             code,
-            storage
+            storage,
         })
     }
 }
@@ -74,8 +77,10 @@ impl FromBytes for Account {
 mod tests {
     use ethnum::AsU256;
 
-use crate::{
-        accounts::Account, merkletrie::SparseMerkleTrie, utils::{FromBytes, ToBytes}
+    use crate::{
+        accounts::Account,
+        merkletrie::SparseMerkleTrie,
+        utils::{FromBytes, ToBytes},
     };
 
     fn key(x: u8) -> [u8; 32] {

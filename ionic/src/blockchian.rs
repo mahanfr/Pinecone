@@ -1,7 +1,12 @@
 use std::fmt::Display;
 
 use crate::{
-    accounts::Account, blocks::Block, merkletrie::SparseMerkleTrie, state::IonicState, transactions::TransactionError, types::{IonicAddr, IonicHash, IonicPK}
+    accounts::Account,
+    blocks::Block,
+    merkletrie::SparseMerkleTrie,
+    state::IonicState,
+    transactions::TransactionError,
+    types::{IonicAddr, IonicHash, IonicPK},
 };
 
 #[derive(Debug)]

@@ -1,7 +1,9 @@
 mod wallet;
 
 use clap::{Parser, Subcommand};
-use ionic::{accounts::Account, keygen::generate_key_pair, merkletrie::SparseMerkleTrie, types::IonicAddr};
+use ionic::{
+    accounts::Account, keygen::generate_key_pair, merkletrie::SparseMerkleTrie, types::IonicAddr,
+};
 
 use crate::wallet::Wallet;
 

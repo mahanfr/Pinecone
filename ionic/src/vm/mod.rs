@@ -1,24 +1,39 @@
 pub mod instructions;
-pub mod opcodes;
 pub mod memory;
-use std::{cmp, error::Error, fmt::Display};
+pub mod opcodes;
+use std::{error::Error, fmt::Display, ops::Not};
 
-use ethnum::{AsI256, AsU256, i256, u256};
+use ethnum::{AsU256, u256};
 
-use crate::{blockchian::Blockchain, utils::ToBytes, vm::instructions::IonicInstr};
+use crate::{
+    blockchian::Blockchain,
+    transactions::Transaction,
+    types::IonicAddr,
+    utils::ToBytes,
+    vm::{
+        instructions::IonicInstr,
+        opcodes::IonicOpcode,
+    },
+};
 
 pub struct VirtualMachine {
     pub stack: Vec<u256>,
+    pub code: Vec<IonicInstr>,
     pub pc: usize,
     pub gas_used: u64,
 }
 
 impl VirtualMachine {
     pub fn new() -> Self {
-        Self { stack: Vec::new(), pc: 0, gas_used: 0 }
+        Self {
+            stack: Vec::new(),
+            code: Vec::new(),
+            pc: 0,
+            gas_used: 0,
+        }
     }
 
-    pub fn parse(code: Vec<u8>) -> Result<Vec<IonicInstr>, VMExecutionError> {
+    pub fn parse(code: &[u8]) -> Result<Vec<IonicInstr>, VMExecutionError> {
         let mut instrs: Vec<IonicInstr> = Vec::new();
         let mut cur = 0;
         while cur < code.len() {
@@ -36,24 +51,279 @@ impl VirtualMachine {
         code
     }
 
-    pub fn execute(
-        &mut self,
-        code: Vec<u8>,
-        blockchian: &Blockchain,
-    ) -> Result<(), VMExecutionError> {
-        let instrs = Self::parse(code)?;
-        self.run(instrs, blockchian)?;
+    pub fn load(&mut self, code: &[u8]) -> Result<(), VMExecutionError> {
+        self.code = Self::parse(code)?;
         Ok(())
     }
 
-    pub fn run(
+    pub fn eval(
         &mut self,
-        instrs: Vec<IonicInstr>,
+        tx: &Transaction,
         _blockchian: &Blockchain,
     ) -> Result<(), VMExecutionError> {
+        use opcodes::IonicOpcode::*;
+        while self.pc < self.code.len() {
+            let instr = self.code[self.pc];
+            match &instr.opcode {
+                STOP => {
+                    break;
+                }
+                ADD | MUL | SUB | DIV | SDIV | MOD | SMOD | EXP | SIGNEXTEND | LT | GT | SLT
+                | SGT | EQ | AND | OR | XOR | BYTE | SHL | SHR | SAR => {
+                    self.eval_binary(&instr.opcode)?
+                }
+                ISZERO | NOT => self.eval_unary(&instr.opcode)?,
+                ADDMOD | MULMOD => self.eval_ternary(&instr.opcode)?,
+                CALLER => self.address(tx.sender()),
+                PUSH0 | PUSH1 | PUSH2 | PUSH3 | PUSH4 | PUSH5 | PUSH6 | PUSH7 | PUSH8 | PUSH9
+                | PUSH10 | PUSH11 | PUSH12 | PUSH13 | PUSH14 | PUSH15 | PUSH16 | PUSH17
+                | PUSH18 | PUSH19 | PUSH20 | PUSH21 | PUSH22 | PUSH23 | PUSH24 | PUSH25
+                | PUSH26 | PUSH27 | PUSH28 | PUSH29 | PUSH30 | PUSH31 | PUSH32 => {
+                    if let Some(imm) = instr.data {
+                        self.push(imm);
+                    } else if instr.opcode == IonicOpcode::PUSH0 {
+                        self.push(u256::ZERO);
+                    } else {
+                        return Err(VMExecutionError::SyntaxError(instr));
+                    }
+                }
+                POP => self.pop()?,
+                DUP1 | DUP2 | DUP3 | DUP4 | DUP5 | DUP6 | DUP7 | DUP8 | DUP9 | DUP10 | DUP11
+                | DUP12 | DUP13 | DUP14 | DUP15 | DUP16 => self.dup(
+                    instr
+                        .opcode
+                        .stack_position()
+                        .expect("Not A DUP Instruction"),
+                ),
+                SWAP1 | SWAP2 | SWAP3 | SWAP4 | SWAP5 | SWAP6 | SWAP7 | SWAP8 | SWAP9 | SWAP10
+                | SWAP11 | SWAP12 | SWAP13 | SWAP14 | SWAP15 | SWAP16 => {
+                    self.swap(
+                        instr
+                            .opcode
+                            .stack_position()
+                            .expect("Not a Swap Instruction"),
+                    );
+                }
+                _ => todo!(),
+            }
+        }
         Ok(())
     }
 
+    fn eval_unary(&mut self, opcode: &IonicOpcode) -> Result<(), VMExecutionError> {
+        let a = self.pop_internal()?;
+        match opcode {
+            IonicOpcode::ISZERO => self.stack.push((a == 0).as_u256()),
+            IonicOpcode::NOT => self.stack.push(a.not()),
+            _ => unreachable!("Not an Unary Operation"),
+        }
+        self.pc += 1;
+        self.gas_used += opcode.gas().unwrap_or(3);
+        Ok(())
+    }
+
+    fn eval_ternary(&mut self, opcode: &IonicOpcode) -> Result<(), VMExecutionError> {
+        let c = self.pop_internal()?;
+        let b = self.pop_internal()?;
+        let a = self.pop_internal()?;
+        let Some(addition) = (match opcode {
+            IonicOpcode::ADDMOD => a.checked_add(b),
+            IonicOpcode::MULMOD => a.checked_mul(b),
+            _ => unreachable!("Not a Turnary Operation"),
+        }) else {
+            return Err(VMExecutionError::BinaryOverflow(self.pc, *opcode, a, b));
+        };
+        let Some(rem) = addition.checked_rem(c) else {
+            return Err(VMExecutionError::BinaryOverflow(
+                self.pc,
+                IonicOpcode::MOD,
+                addition,
+                c,
+            ));
+        };
+        self.stack.push(rem);
+        self.pc += 1;
+        self.gas_used += opcode.gas().unwrap_or(8);
+        Ok(())
+    }
+
+    fn eval_binary(&mut self, opcode: &IonicOpcode) -> Result<(), VMExecutionError> {
+        use IonicOpcode::*;
+        let b = self.pop_internal()?;
+        let a = self.pop_internal()?;
+        let result_maybe = match opcode {
+            ADD => a.checked_add(b),
+            MUL => a.checked_mul(b),
+            SUB => a.checked_sub(b),
+            DIV => a.checked_div(b),
+            SDIV => {
+                let sa = a.as_i256();
+                let sb = b.as_i256();
+                sa.checked_div(sb).map(|x| x.as_u256())
+            }
+            MOD => a.checked_rem(b),
+            SMOD => {
+                let sa = a.as_i256();
+                let sb = b.as_i256();
+                sa.checked_rem(sb).map(|x| x.as_u256())
+            }
+            EXP => {
+                let exp_bytes = exponent_bytes(b);
+                let mut result = 1.as_u256();
+                let mut iteration = 0.as_u256();
+                while iteration < b {
+                    let Some(c) = result.checked_mul(a) else {
+                        return Err(VMExecutionError::BinaryOverflow(self.pc, *opcode, a, b));
+                    };
+                    result = c;
+                    iteration += 1;
+                }
+                self.gas_used += 10 + (50 * exp_bytes);
+                Some(result)
+            }
+            SIGNEXTEND => {
+                if b >= 31 {
+                    Some(a)
+                } else {
+                    let byte_index = b.as_u32() as usize;
+                    let sign_bit_pos = 255 - (byte_index * 8);
+                    let mask: u256 = if sign_bit_pos == 255 {
+                        u256::MAX
+                    } else {
+                        (u256::ONE << (sign_bit_pos + 1)) - u256::ONE
+                    };
+                    let sign = (a >> sign_bit_pos) & u256::ONE;
+                    if sign == u256::ONE {
+                        Some(a | !mask)
+                    } else {
+                        Some(a & mask)
+                    }
+                }
+            }
+            LT => Some((a < b).as_u256()),
+            GT => Some((a > b).as_u256()),
+            SLT => {
+                let sa = a.as_i256();
+                let sb = b.as_i256();
+                Some((sa < sb).as_u256())
+            }
+            SGT => {
+                let sa = a.as_i256();
+                let sb = b.as_i256();
+                Some((sa > sb).as_u256())
+            }
+            EQ => Some((a == b).as_u256()),
+            AND => Some(a & b),
+            OR => Some(a | b),
+            XOR => Some(a ^ b),
+            BYTE => {
+                if b > 32 {
+                    None
+                } else {
+                    Some((a >> (248 - b * 8)) & 0xFF)
+                }
+            }
+            SHL => {
+                if b > 256 {
+                    None
+                } else {
+                    a.checked_shl(b.as_u32())
+                }
+            }
+            SHR => {
+                if b > 256 {
+                    None
+                } else {
+                    a.checked_shr(b.as_u32())
+                }
+            }
+            SAR => {
+                let negative = (a >> 255u32) & u256::ONE == u256::ONE;
+                if b >= 256 {
+                    if negative {
+                        Some(u256::MAX)
+                    } else {
+                        Some(u256::ZERO)
+                    }
+                } else {
+                    let shift = b.as_u32();
+                    if shift == 0 {
+                        Some(a)
+                    } else {
+                        if negative {
+                            let sign_fill: u256 = u256::MAX << (256 - shift);
+                            Some((a >> shift) | sign_fill)
+                        } else {
+                            Some(a >> shift)
+                        }
+                    }
+                }
+            }
+            _ => unreachable!("Not a Binary Operation"),
+        };
+        if let Some(result) = result_maybe {
+            self.stack.push(result);
+        } else {
+            return Err(VMExecutionError::BinaryOverflow(self.pc, *opcode, a, b));
+        }
+        self.gas_used += opcode.gas().unwrap_or_default();
+        self.pc += 1;
+        Ok(())
+    }
+
+    fn address(&mut self, sender: IonicAddr) {
+        self.stack.push(sender.into());
+        self.pc += 1;
+        self.gas_used += 2;
+    }
+
+    fn push(&mut self, val: u256) {
+        self.stack.push(val);
+        self.pc += 1;
+        self.gas_used += 2;
+    }
+
+    fn dup(&mut self, nth: u8) {
+        let last = self.stack.len() - nth as usize;
+        let duped = self.stack[last];
+        self.stack.push(duped);
+        self.pc += 1;
+        self.gas_used += 3;
+    }
+
+    fn swap(&mut self, nth: u8) {
+        let nth = nth as usize;
+        let last = self.stack.len() - 1;
+        let swapable = self.stack[last];
+        let target = self.stack[last - nth];
+        self.stack[last - nth] = swapable;
+        self.stack[last] = target;
+        self.pc += 1;
+        self.gas_used += 3;
+    }
+
+    fn pop(&mut self) -> Result<(), VMExecutionError> {
+        self.pop_internal()?;
+        self.pc += 1;
+        self.gas_used += IonicOpcode::POP.gas().unwrap();
+        Ok(())
+    }
+
+    fn pop_internal(&mut self) -> Result<u256, VMExecutionError> {
+        let Some(val) = self.stack.pop() else {
+            return Err(VMExecutionError::EmptyStack(self.pc, self.get_instr()));
+        };
+        return Ok(val);
+    }
+
+    fn get_instr(&self) -> IonicInstr {
+        self.code[self.pc]
+    }
+}
+
+fn exponent_bytes(exp: u256) -> u64 {
+    let zero_bits = exp.trailing_zeros();
+    32 - (zero_bits / 8) as u64
 }
 
 #[derive(Debug)]
@@ -62,10 +332,10 @@ pub enum VMExecutionError {
     InvalidSize,
     SyntaxError(IonicInstr),
     InvalidPC(u64),
-    UnaryOverflow(usize, IonicInstr, u256),
-    BinaryOverflow(usize, IonicInstr, u256, u256),
-    TernaryOverflow(usize, IonicInstr, u256, u256, u256),
-    StackUnderflow(usize, IonicInstr),
+    UnaryOverflow(usize, IonicOpcode, u256),
+    BinaryOverflow(usize, IonicOpcode, u256, u256),
+    TernaryOverflow(usize, IonicOpcode, u256, u256, u256),
+    EmptyStack(usize, IonicInstr),
     OutOfBounds(usize, IonicInstr, u256),
 }
 
@@ -85,7 +355,7 @@ impl Display for VMExecutionError {
             Self::TernaryOverflow(pc, instr, a, b, c) => {
                 write!(f, "Operation Overflow at ${pc}: {instr} {a} {b} {c}")
             }
-            Self::StackUnderflow(pc, instr) => {
+            Self::EmptyStack(pc, instr) => {
                 write!(
                     f,
                     "Empty Stack: Can not pop data out of stack at ${pc}: {instr}"

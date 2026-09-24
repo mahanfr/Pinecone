@@ -1,4 +1,7 @@
-use std::{array::TryFromSliceError, time::{SystemTime, UNIX_EPOCH}};
+use std::{
+    array::TryFromSliceError,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD_INDIFFERENT};
 use ethnum::u256;

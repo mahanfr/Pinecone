@@ -1,6 +1,11 @@
 use ethnum::AsU256;
 
-use crate::{serialization::{CodecError, read_slice, read_uvarint, write_uvarint}, types::IonicHash, utils::{FromBytes, ToBytes}, verkletrie::TrieError};
+use crate::{
+    serialization::{CodecError, read_slice, read_uvarint, write_uvarint},
+    types::IonicHash,
+    utils::{FromBytes, ToBytes},
+    verkletrie::TrieError,
+};
 
 const KEY_LEN: usize = 32;
 pub const ARITY: usize = 256;
@@ -87,7 +92,6 @@ impl<T: Clone + ToBytes + FromBytes> SparseMerkleTrie<T> {
         Ok(Self { root })
     }
 }
-
 
 #[derive(Debug, Clone)]
 struct MerkleNodeBranch<T: ToBytes + Clone> {
@@ -222,7 +226,7 @@ impl<T: Clone + ToBytes> MerkleNode<T> {
                     panic!("Call hash() with mutable ref by generating root_hash first")
                 }
                 b.hash
-            },
+            }
         }
     }
 

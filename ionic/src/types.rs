@@ -2,6 +2,7 @@ use std::fmt::{Debug, Display};
 
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD_INDIFFERENT};
 use ed25519_dalek::VerifyingKey;
+use ethnum::u256;
 
 use crate::utils::ToBytes;
 
@@ -138,6 +139,12 @@ impl Default for IonicAddr {
 impl Into<[u8; 32]> for IonicAddr {
     fn into(self) -> [u8; 32] {
         self.addr
+    }
+}
+
+impl Into<u256> for IonicAddr {
+    fn into(self) -> u256 {
+        u256::from_le_bytes(self.addr)
     }
 }
 

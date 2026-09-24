@@ -30,49 +30,49 @@ pub enum IonicOpcode {
     SHL = 0x1B,
     SHR = 0x1C,
     SAR = 0x1D,
-    KECCAK256 = 0x20,
-    ADDRESS = 0x30,
-    BALANCE = 0x31,
-    ORIGIN = 0x32,
-    CALLER = 0x33,
-    CALLVALUE = 0x34,
-    CALLDATALOAD = 0x35,
-    CALLDATASIZE = 0x36,
-    CALLDATACOPY = 0x37,
-    CODESIZE = 0x38,
-    CODECOPY = 0x39,
-    GASPRICE = 0x3A,
-    EXTCODESIZE = 0x3B,
-    EXTCODECOPY = 0x3C,
-    RETURNDATASIZE = 0x3D,
-    RETURNDATACOPY = 0x3E,
-    EXTCODEHASH = 0x3F,
-    BLOCKHASH = 0x40,
-    COINBASE = 0x41,
-    TIMESTAMP = 0x42,
-    NUMBER = 0x43,
-    PREVRANDAO = 0x44,
-    GASLIMIT = 0x45,
-    CHAINID = 0x46,
-    SELFBALANCE = 0x47,
-    BASEFEE = 0x48,
-    BLOBHASH = 0x49,
-    BLOBBASEFEE = 0x4A,
+    HASH = 0x20,           // TODO
+    ADDRESS = 0x30,        // TODO
+    BALANCE = 0x31,        // TODO
+    ORIGIN = 0x32,         // TODO
+    CALLER = 0x33,         // TODO
+    CALLVALUE = 0x34,      // TODO
+    CALLDATALOAD = 0x35,   // TODO
+    CALLDATASIZE = 0x36,   // TODO
+    CALLDATACOPY = 0x37,   // TODO
+    CODESIZE = 0x38,       // TODO
+    CODECOPY = 0x39,       // TODO
+    GASPRICE = 0x3A,       // TODO
+    EXTCODESIZE = 0x3B,    // TODO
+    EXTCODECOPY = 0x3C,    // TODO
+    RETURNDATASIZE = 0x3D, // TODO
+    RETURNDATACOPY = 0x3E, // TODO
+    EXTCODEHASH = 0x3F,    // TODO
+    BLOCKHASH = 0x40,      // TODO
+    COINBASE = 0x41,       // TODO
+    TIMESTAMP = 0x42,      // TODO
+    NUMBER = 0x43,         // TODO
+    PREVRANDAO = 0x44,     // TODO
+    GASLIMIT = 0x45,       // TODO
+    CHAINID = 0x46,        // TODO
+    SELFBALANCE = 0x47,    // TODO
+    BASEFEE = 0x48,        // TODO
+    BLOBHASH = 0x49,       // TODO
+    BLOBBASEFEE = 0x4A,    // TODO
     POP = 0x50,
-    MLOAD = 0x51,
-    MSTORE = 0x52,
-    MSTORE8 = 0x53,
-    SLOAD = 0x54,
-    SSTORE = 0x55,
-    JUMP = 0x56,
-    JUMPI = 0x57,
-    PC = 0x58,
-    MSIZE = 0x59,
-    GAS = 0x5A,
-    JUMPDEST = 0x5B,
-    TLOAD = 0x5C,
-    TSTORE = 0x5D,
-    MCOPY = 0x5E,
+    MLOAD = 0x51,    // TODO
+    MSTORE = 0x52,   // TODO
+    MSTORE8 = 0x53,  // TODO
+    SLOAD = 0x54,    // TODO
+    SSTORE = 0x55,   // TODO
+    JUMP = 0x56,     // TODO
+    JUMPI = 0x57,    // TODO
+    PC = 0x58,       // TODO
+    MSIZE = 0x59,    // TODO
+    GAS = 0x5A,      // TODO
+    JUMPDEST = 0x5B, // TODO
+    TLOAD = 0x5C,    // TODO
+    TSTORE = 0x5D,   // TODO
+    MCOPY = 0x5E,    // TODO
     PUSH0 = 0x5F,
     PUSH1 = 0x60,
     PUSH2 = 0x61,
@@ -138,21 +138,21 @@ pub enum IonicOpcode {
     SWAP14 = 0x9D,
     SWAP15 = 0x9E,
     SWAP16 = 0x9F,
-    LOG0 = 0xA0,
-    LOG1 = 0xA1,
-    LOG2 = 0xA2,
-    LOG3 = 0xA3,
-    LOG4 = 0xA4,
-    CREATE = 0xF0,
-    CALL = 0xF1,
-    CALLCODE = 0xF2,
-    RETURN = 0xF3,
-    DELEGATECALL = 0xF4,
-    CREATE2 = 0xF5,
-    STATICCALL = 0xFA,
-    REVERT = 0xFD,
-    INVALID = 0xFE,
-    SELFDESTRUCT = 0xFF,
+    LOG0 = 0xA0,         // TODO
+    LOG1 = 0xA1,         // TODO
+    LOG2 = 0xA2,         // TODO
+    LOG3 = 0xA3,         // TODO
+    LOG4 = 0xA4,         // TODO
+    CREATE = 0xF0,       // TODO
+    CALL = 0xF1,         // TODO
+    CALLCODE = 0xF2,     // TODO
+    RETURN = 0xF3,       // TODO
+    DELEGATECALL = 0xF4, // TODO
+    CREATE2 = 0xF5,      // TODO
+    STATICCALL = 0xFA,   // TODO
+    REVERT = 0xFD,       // TODO
+    INVALID = 0xFE,      // TODO
+    SELFDESTRUCT = 0xFF, // TODO
 }
 
 impl IonicOpcode {
@@ -188,7 +188,7 @@ impl IonicOpcode {
             0x1B => Ok(Self::SHL),
             0x1C => Ok(Self::SHR),
             0x1D => Ok(Self::SAR),
-            0x20 => Ok(Self::KECCAK256),
+            0x20 => Ok(Self::HASH),
             0x30 => Ok(Self::ADDRESS),
             0x31 => Ok(Self::BALANCE),
             0x32 => Ok(Self::ORIGIN),
@@ -343,7 +343,7 @@ impl IonicOpcode {
             Self::SHL => "SHL",
             Self::SHR => "SHR",
             Self::SAR => "SAR",
-            Self::KECCAK256 => "KECCAK256",
+            Self::HASH => "HASH",
             Self::ADDRESS => "ADDRESS",
             Self::BALANCE => "BALANCE",
             Self::ORIGIN => "ORIGIN",
@@ -470,15 +470,42 @@ impl IonicOpcode {
     }
 
     pub fn is_push(self) -> bool {
-        matches!(self, Self::PUSH0 | Self::PUSH1 | Self::PUSH2 | Self::PUSH3 |
-            Self::PUSH4 | Self::PUSH5 | Self::PUSH6 | Self::PUSH7 |
-            Self::PUSH8 | Self::PUSH9 | Self::PUSH10 | Self::PUSH11 |
-            Self::PUSH12 | Self::PUSH13 | Self::PUSH14 | Self::PUSH15 |
-            Self::PUSH16 | Self::PUSH17 | Self::PUSH18 | Self::PUSH19 |
-            Self::PUSH20 | Self::PUSH21 | Self::PUSH22 | Self::PUSH23 |
-            Self::PUSH24 | Self::PUSH25 | Self::PUSH26 | Self::PUSH27 |
-            Self::PUSH28 | Self::PUSH29 | Self::PUSH30 | Self::PUSH31 |
-            Self::PUSH32)
+        matches!(
+            self,
+            Self::PUSH0
+                | Self::PUSH1
+                | Self::PUSH2
+                | Self::PUSH3
+                | Self::PUSH4
+                | Self::PUSH5
+                | Self::PUSH6
+                | Self::PUSH7
+                | Self::PUSH8
+                | Self::PUSH9
+                | Self::PUSH10
+                | Self::PUSH11
+                | Self::PUSH12
+                | Self::PUSH13
+                | Self::PUSH14
+                | Self::PUSH15
+                | Self::PUSH16
+                | Self::PUSH17
+                | Self::PUSH18
+                | Self::PUSH19
+                | Self::PUSH20
+                | Self::PUSH21
+                | Self::PUSH22
+                | Self::PUSH23
+                | Self::PUSH24
+                | Self::PUSH25
+                | Self::PUSH26
+                | Self::PUSH27
+                | Self::PUSH28
+                | Self::PUSH29
+                | Self::PUSH30
+                | Self::PUSH31
+                | Self::PUSH32
+        )
     }
 
     pub fn push_size(self) -> Option<u8> {
@@ -521,11 +548,25 @@ impl IonicOpcode {
     }
 
     pub fn is_dup(self) -> bool {
-        matches!(self,
-            Self::DUP1 | Self::DUP2 | Self::DUP3 | Self::DUP4 |
-            Self::DUP5 | Self::DUP6 | Self::DUP7 | Self::DUP8 |
-            Self::DUP9 | Self::DUP10 | Self::DUP11 | Self::DUP12 |
-            Self::DUP13 | Self::DUP14 | Self::DUP15 | Self::DUP16)
+        matches!(
+            self,
+            Self::DUP1
+                | Self::DUP2
+                | Self::DUP3
+                | Self::DUP4
+                | Self::DUP5
+                | Self::DUP6
+                | Self::DUP7
+                | Self::DUP8
+                | Self::DUP9
+                | Self::DUP10
+                | Self::DUP11
+                | Self::DUP12
+                | Self::DUP13
+                | Self::DUP14
+                | Self::DUP15
+                | Self::DUP16
+        )
     }
 
     pub fn stack_position(self) -> Option<u8> {
@@ -551,15 +592,32 @@ impl IonicOpcode {
     }
 
     pub fn is_swap(self) -> bool {
-        matches!(self,
-            Self::SWAP1 | Self::SWAP2 | Self::SWAP3 | Self::SWAP4 |
-            Self::SWAP5 | Self::SWAP6 | Self::SWAP7 | Self::SWAP8 |
-            Self::SWAP9 | Self::SWAP10 | Self::SWAP11 | Self::SWAP12 |
-            Self::SWAP13 | Self::SWAP14 | Self::SWAP15 | Self::SWAP16)
+        matches!(
+            self,
+            Self::SWAP1
+                | Self::SWAP2
+                | Self::SWAP3
+                | Self::SWAP4
+                | Self::SWAP5
+                | Self::SWAP6
+                | Self::SWAP7
+                | Self::SWAP8
+                | Self::SWAP9
+                | Self::SWAP10
+                | Self::SWAP11
+                | Self::SWAP12
+                | Self::SWAP13
+                | Self::SWAP14
+                | Self::SWAP15
+                | Self::SWAP16
+        )
     }
 
     pub fn is_log(self) -> bool {
-        matches!(self, Self::LOG0 | Self::LOG1 | Self::LOG2 | Self::LOG3 | Self::LOG4)
+        matches!(
+            self,
+            Self::LOG0 | Self::LOG1 | Self::LOG2 | Self::LOG3 | Self::LOG4
+        )
     }
 
     pub fn log_topics(self) -> Option<u8> {
@@ -601,7 +659,7 @@ impl IonicOpcode {
             Self::SHL => Some(3),
             Self::SHR => Some(3),
             Self::SAR => Some(3),
-            Self::KECCAK256 => None,
+            Self::HASH => None,
             Self::ADDRESS => Some(2),
             Self::BALANCE => None,
             Self::ORIGIN => Some(2),
@@ -728,15 +786,40 @@ impl IonicOpcode {
     }
 
     pub fn has_immediate(self) -> bool {
-        matches!(self,
-            Self::PUSH1  | Self::PUSH2  | Self::PUSH3  | Self::PUSH4  |
-            Self::PUSH5  | Self::PUSH6  | Self::PUSH7  | Self::PUSH8  |
-            Self::PUSH9  | Self::PUSH10 | Self::PUSH11 | Self::PUSH12 |
-            Self::PUSH13 | Self::PUSH14 | Self::PUSH15 | Self::PUSH16 |
-            Self::PUSH17 | Self::PUSH18 | Self::PUSH19 | Self::PUSH20 |
-            Self::PUSH21 | Self::PUSH22 | Self::PUSH23 | Self::PUSH24 |
-            Self::PUSH25 | Self::PUSH26 | Self::PUSH27 | Self::PUSH28 |
-            Self::PUSH29 | Self::PUSH30 | Self::PUSH31 | Self::PUSH32
+        matches!(
+            self,
+            Self::PUSH1
+                | Self::PUSH2
+                | Self::PUSH3
+                | Self::PUSH4
+                | Self::PUSH5
+                | Self::PUSH6
+                | Self::PUSH7
+                | Self::PUSH8
+                | Self::PUSH9
+                | Self::PUSH10
+                | Self::PUSH11
+                | Self::PUSH12
+                | Self::PUSH13
+                | Self::PUSH14
+                | Self::PUSH15
+                | Self::PUSH16
+                | Self::PUSH17
+                | Self::PUSH18
+                | Self::PUSH19
+                | Self::PUSH20
+                | Self::PUSH21
+                | Self::PUSH22
+                | Self::PUSH23
+                | Self::PUSH24
+                | Self::PUSH25
+                | Self::PUSH26
+                | Self::PUSH27
+                | Self::PUSH28
+                | Self::PUSH29
+                | Self::PUSH30
+                | Self::PUSH31
+                | Self::PUSH32
         )
     }
 
@@ -768,7 +851,7 @@ impl IonicOpcode {
             Self::SHL => 2,
             Self::SHR => 2,
             Self::SAR => 2,
-            Self::KECCAK256 => 2,
+            Self::HASH => 2,
             Self::ADDRESS => 0,
             Self::BALANCE => 1,
             Self::ORIGIN => 0,
@@ -896,15 +979,15 @@ impl IonicOpcode {
 
     pub fn immediate_size(self) -> usize {
         match self {
-            Self::PUSH1  => 1,
-            Self::PUSH2  => 2,
-            Self::PUSH3  => 3,
-            Self::PUSH4  => 4,
-            Self::PUSH5  => 5,
-            Self::PUSH6  => 6,
-            Self::PUSH7  => 7,
-            Self::PUSH8  => 8,
-            Self::PUSH9  => 9,
+            Self::PUSH1 => 1,
+            Self::PUSH2 => 2,
+            Self::PUSH3 => 3,
+            Self::PUSH4 => 4,
+            Self::PUSH5 => 5,
+            Self::PUSH6 => 6,
+            Self::PUSH7 => 7,
+            Self::PUSH8 => 8,
+            Self::PUSH9 => 9,
             Self::PUSH10 => 10,
             Self::PUSH11 => 11,
             Self::PUSH12 => 12,
@@ -952,4 +1035,3 @@ impl From<IonicOpcode> for u8 {
         op.as_byte()
     }
 }
-
