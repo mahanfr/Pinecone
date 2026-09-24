@@ -1,246 +1,103 @@
-use std::fmt::Display;
+use std::{fmt::Display};
 
 use ethnum::{AsU256, u256};
 
-use crate::vm::VMExecutionError;
+use crate::{utils::ToBytes, vm::{VMExecutionError, opcodes::IonicOpcode}};
+
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum IonicInstr {
-    STOP,
-    NOP,
-    JUMP(u64),
-    JUMPC(u64),
-    PC,
-    GAS,
-    INVALID,
-
-    ADD,
-    SUB,
-    MUL,
-    DIV,
-    MOD,
-    ADDMOD,
-    MULMOD,
-    EXP,
-    INC,
-    DEC,
-    NEG,
-    ABS,
-    MIN,
-    MAX,
-
-    SMOD,
-    SDIV,
-    SABS,
-    SMIN,
-    SMAX,
-
-    LT,
-    GT,
-    ELT,
-    EGT,
-    EQ,
-    ISZERO,
-    AND,
-    OR,
-    XOR,
-    NOT,
-    SHL,
-    SHR,
-    SAR,
-    BIT,
-    POPCOUNT,
-
-    POP,
-    PUSH(u256),
-    DUP,
-    SWAP,
-    ROT,
-    DEPT,
-
-    MLOAD,
-    MSTORE,
-
-    EXT,
+pub struct IonicInstr {
+    pub opcode: IonicOpcode,
+    pub data: Option<u256>,
 }
 
 impl IonicInstr {
-    pub fn to_bytes(&self) -> Vec<u8> {
-        match self {
-            Self::STOP => vec![0x00],
-            Self::NOP => vec![0x01],
-            Self::JUMP(_) => vec![0x02],
-            Self::JUMPC(_) => vec![0x03],
-            Self::PC => vec![0x04],
-            Self::GAS => vec![0x05],
-            Self::INVALID => vec![0x06],
-            Self::ADD => vec![0x10],
-            Self::SUB => vec![0x11],
-            Self::MUL => vec![0x12],
-            Self::DIV => vec![0x13],
-            Self::ADDMOD => vec![0x14],
-            Self::MULMOD => vec![0x15],
-            Self::EXP => vec![0x16],
-            Self::INC => vec![0x17],
-            Self::DEC => vec![0x18],
-            Self::NEG => vec![0x19],
-            Self::ABS => vec![0x1a],
-            Self::MIN => vec![0x1b],
-            Self::MAX => vec![0x1c],
-            Self::MOD => vec![0x1d],
-            Self::SMOD => vec![0x20],
-            Self::SDIV => vec![0x21],
-            Self::SABS => vec![0x22],
-            Self::SMIN => vec![0x23],
-            Self::SMAX => vec![0x24],
-            Self::LT => vec![0x30],
-            Self::GT => vec![0x31],
-            Self::ELT => vec![0x32],
-            Self::EGT => vec![0x33],
-            Self::EQ => vec![0x34],
-            Self::ISZERO => vec![0x35],
-            Self::AND => vec![0x36],
-            Self::OR => vec![0x37],
-            Self::XOR => vec![0x38],
-            Self::NOT => vec![0x39],
-            Self::SHL => vec![0x3a],
-            Self::SHR => vec![0x3b],
-            Self::SAR => vec![0x3c],
-            Self::BIT => vec![0x3d],
-            Self::POPCOUNT => vec![0x3e],
-            Self::POP => vec![0x50],
-            Self::PUSH(val) => {
-                let mut code = vec![0x51];
-                code.extend_from_slice(&val.to_le_bytes());
-                code
+    pub fn parse(code: &[u8], cur: &mut usize) -> Result<Self, VMExecutionError> {
+        let opcode_byte = code[*cur];
+        let opcode = IonicOpcode::from_byte(opcode_byte)?;
+        *cur += 1;
+        if !opcode.has_immediate() {
+            return Ok(opcode.into());
+        }
+        let imm_size = opcode.immediate_size();
+        if *cur + imm_size <= code.len() {
+            return Err(VMExecutionError::InvalidSize);
+        }
+        let data = match imm_size {
+            1 => code[*cur].as_u256(),
+            2 => u16::from_le_bytes([code[*cur], code[*cur + 1]]).as_u256(),
+            3..=4 => {
+                let arr: [u8; 4] = code[*cur..*cur + 4].try_into().map_err(|_| VMExecutionError::InvalidSize)?;
+                u32::from_le_bytes(arr).as_u256()
             }
-            Self::DUP => vec![0x52],
-            Self::SWAP => vec![0x53],
-            Self::ROT => vec![0x54],
-            Self::DEPT => vec![0x55],
-            Self::MLOAD => vec![0x70],
-            Self::MSTORE => vec![0x71],
-            Self::EXT => vec![0xff],
-        }
-    }
+            5..=8 => {
+                let arr: [u8; 8] = code[*cur..*cur + 8].try_into().map_err(|_| VMExecutionError::InvalidSize)?;
+                u64::from_le_bytes(arr).as_u256()
+            }
+            9..=16 => {
+                let arr: [u8; 16] = code[*cur..*cur + 16].try_into().map_err(|_| VMExecutionError::InvalidSize)?;
+                u128::from_le_bytes(arr).as_u256()
+            }
+            17..=32 => {
+                let arr: [u8; 32] = code[*cur..*cur + 32].try_into().map_err(|_| VMExecutionError::InvalidSize)?;
+                u256::from_le_bytes(arr)
+            }
+            _ => unreachable!("The immediate value can not be bigger that 32"),
+        };
 
-    pub fn from_byte(byte: u8) -> Result<Self, VMExecutionError> {
-        match byte {
-            0x00 => Ok(Self::STOP),
-            0x01 => Ok(Self::NOP),
-            0x02 => Ok(Self::JUMP(0)),
-            0x03 => Ok(Self::JUMPC(0)),
-            0x04 => Ok(Self::PC),
-            0x05 => Ok(Self::GAS),
-            0x06 => Ok(Self::INVALID),
-            0x10 => Ok(Self::ADD),
-            0x11 => Ok(Self::SUB),
-            0x12 => Ok(Self::MUL),
-            0x13 => Ok(Self::DIV),
-            0x14 => Ok(Self::ADDMOD),
-            0x15 => Ok(Self::MULMOD),
-            0x16 => Ok(Self::EXP),
-            0x17 => Ok(Self::INC),
-            0x18 => Ok(Self::DEC),
-            0x19 => Ok(Self::NEG),
-            0x1a => Ok(Self::ABS),
-            0x1b => Ok(Self::MIN),
-            0x1c => Ok(Self::MAX),
-            0x1d => Ok(Self::MOD),
-            0x20 => Ok(Self::SMOD),
-            0x21 => Ok(Self::SDIV),
-            0x22 => Ok(Self::SABS),
-            0x23 => Ok(Self::SMIN),
-            0x24 => Ok(Self::SMAX),
-            0x30 => Ok(Self::LT),
-            0x31 => Ok(Self::GT),
-            0x32 => Ok(Self::ELT),
-            0x33 => Ok(Self::EGT),
-            0x34 => Ok(Self::EQ),
-            0x35 => Ok(Self::ISZERO),
-            0x36 => Ok(Self::AND),
-            0x37 => Ok(Self::OR),
-            0x38 => Ok(Self::XOR),
-            0x39 => Ok(Self::NOT),
-            0x3a => Ok(Self::SHL),
-            0x3b => Ok(Self::SHR),
-            0x3c => Ok(Self::SAR),
-            0x3d => Ok(Self::BIT),
-            0x3e => Ok(Self::POPCOUNT),
-            0x50 => Ok(Self::POP),
-            0x51 => Ok(Self::PUSH(0.as_u256())),
-            0x52 => Ok(Self::DUP),
-            0x53 => Ok(Self::SWAP),
-            0x54 => Ok(Self::ROT),
-            0x55 => Ok(Self::DEPT),
-            0x70 => Ok(Self::MLOAD),
-            0x71 => Ok(Self::MSTORE),
-            0xff => Ok(Self::EXT),
-            _ => Err(VMExecutionError::IllegalInstruction(byte)),
-        }
-    }
+        *cur += imm_size;
 
-    pub fn number_of_operators(&self) -> u8 {
-        match self {
-            Self::PUSH(_) => 1,
-            _ => 0,
+        Ok(Self {
+            opcode,
+            data: Some(data),
+        })
+    }
+}
+
+impl ToBytes for IonicInstr {
+    fn to_bytes(&self) -> Vec<u8> {
+        if !self.opcode.has_immediate() {
+            vec![self.opcode.as_byte()]
+        } else {
+            let Some(val) = self.data else {
+                return vec![IonicOpcode::STOP.as_byte()];
+            };
+            let mut data = vec![self.opcode.as_byte()];
+            let imm = match self.opcode.immediate_size() {
+                1 => val.as_u8().to_le_bytes().to_vec(),
+                2 => val.as_u16().to_le_bytes().to_vec(),
+                3..=4 => val.as_u32().to_le_bytes().to_vec(),
+                5..=8 => val.as_u64().to_le_bytes().to_vec(),
+                9..=16 => val.as_u128().to_le_bytes().to_vec(),
+                17..=32 =>  val.to_le_bytes().to_vec(),
+                _ => unreachable!("The immediate value can not be bigger that 32"),
+            };
+            data.extend_from_slice(&imm);
+            data
         }
     }
 }
 
 impl Display for IonicInstr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::STOP => write!(f, "STOP"),
-            Self::NOP => write!(f, "NOP"),
-            Self::JUMP(pc) => write!(f, "JUMP ${pc}"),
-            Self::JUMPC(pc) => write!(f, "JUMPC ${pc}"),
-            Self::PC => write!(f, "PC"),
-            Self::GAS => write!(f, "GAS"),
-            Self::INVALID => write!(f, "INVALID"),
-            Self::ADD => write!(f, "ADD"),
-            Self::SUB => write!(f, "SUB"),
-            Self::MUL => write!(f, "MUL"),
-            Self::DIV => write!(f, "DIV"),
-            Self::ADDMOD => write!(f, "ADDMOD"),
-            Self::MULMOD => write!(f, "MULMOD"),
-            Self::EXP => write!(f, "EXP"),
-            Self::INC => write!(f, "INC"),
-            Self::DEC => write!(f, "DEC"),
-            Self::NEG => write!(f, "NEG"),
-            Self::ABS => write!(f, "ABS"),
-            Self::MIN => write!(f, "MIN"),
-            Self::MAX => write!(f, "MAX"),
-            Self::MOD => write!(f, "MOD"),
-            Self::SMOD => write!(f, "SMOD"),
-            Self::SDIV => write!(f, "SDIV"),
-            Self::SABS => write!(f, "SABS"),
-            Self::SMIN => write!(f, "SMIN"),
-            Self::SMAX => write!(f, "SMAX"),
-            Self::LT => write!(f, "LT"),
-            Self::GT => write!(f, "GT"),
-            Self::ELT => write!(f, "ELT"),
-            Self::EGT => write!(f, "EGT"),
-            Self::EQ => write!(f, "EQ"),
-            Self::ISZERO => write!(f, "ISZERO"),
-            Self::AND => write!(f, "AND"),
-            Self::OR => write!(f, "OR"),
-            Self::XOR => write!(f, "XOR"),
-            Self::NOT => write!(f, "NOT"),
-            Self::SHL => write!(f, "SHL"),
-            Self::SHR => write!(f, "SHR"),
-            Self::SAR => write!(f, "SAR"),
-            Self::BIT => write!(f, "BIT"),
-            Self::POPCOUNT => write!(f, "POPCOUNT"),
-            Self::POP => write!(f, "POP"),
-            Self::PUSH(imm) => write!(f, "PUSH #{imm}"),
-            Self::DUP => write!(f, "DUP"),
-            Self::SWAP => write!(f, "SWAP"),
-            Self::ROT => write!(f, "ROT"),
-            Self::DEPT => write!(f, "DEPT"),
-            Self::MLOAD => write!(f, "MLOAD"),
-            Self::MSTORE => write!(f, "MSTORE"),
-            Self::EXT => write!(f, "EXT"),
+        match self.data {
+            Some(data) => write!(f, "{} {data}", self.opcode),
+            None => self.opcode.fmt(f)
+        }
+    }
+}
+
+impl Into<IonicOpcode> for IonicInstr {
+    fn into(self) -> IonicOpcode {
+        self.opcode
+    }
+}
+
+impl From<IonicOpcode> for IonicInstr {
+    fn from(opcode: IonicOpcode) -> Self {
+        Self {
+            opcode,
+            data: None
         }
     }
 }
