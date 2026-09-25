@@ -37,7 +37,8 @@ impl Blockchain {
             code: Vec::new(),
             storage: SparseMerkleTrie::new(),
         };
-        self.state.add_account(addr, account).unwrap();
+        self.state.add_account(addr, account.clone()).unwrap();
+        self.cache.insert(addr, account);
     }
 
     pub fn verify_block(&self, block: &Block) -> Result<(), BlockchainError> {

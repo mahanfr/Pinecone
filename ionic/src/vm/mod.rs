@@ -105,6 +105,26 @@ impl VirtualMachine {
                 ORIGIN => self.address(self.ctx.origin),
                 CALLER => self.address(self.ctx.caller),
                 CALLVALUE => self.call_value(),
+                CALLDATALOAD => {
+                    let off = self.pop_internal()?.as_usize();
+                    let calldata: [u8;32] = self.ctx.calldata[off..off+32].try_into().unwrap();
+                    self.stack.push(u256::from_le_bytes(calldata));
+                    self.pc += 1;
+                    self.gas_used += 3;
+                }
+                CALLDATASIZE => {
+                    self.stack.push(self.ctx.calldata.len().as_u256());
+                    self.pc += 1;
+                    self.gas_used += 2;
+                },
+                CALLDATACOPY => {
+                    let len = self.pop_internal()?;
+                    let ost = self.pop_internal()?;
+                    let destost = self.pop_internal()?;
+                    let cost = self.memory.expantion_cost(destost, len);
+                    self.memory.write_padded(destost, len, ost, &self.ctx.calldata);
+                    self.gas_used += cost;
+                }
                 CHAINID => {
                     self.stack.push(blockchain.id.as_u256());
                     self.pc += 1;

@@ -18,6 +18,19 @@ impl IonicMemory {
         Self { data: Vec::new() }
     }
 
+    pub fn write_padded(&mut self, offset: u256, len: u256, data_offset: u256, data: &[u8]) {
+        let offset = offset.as_usize();
+        let len = len.as_usize();
+        let data_offset = data_offset.as_usize();
+        let mut slice = Vec::new();
+        let arr = &data[data_offset..data_offset+len];
+        slice.extend_from_slice(arr);
+        let padded_len = (len + 31) / 32;
+        slice.resize(padded_len, 0);
+        self.expand_memory_if_needed(offset, len);
+        self.data[offset..offset + padded_len].copy_from_slice(&slice);
+    }
+
     pub fn mload(&mut self, offset: u256) -> u256 {
         let offset = offset.as_usize();
         if offset + 32 > self.data.len() {
