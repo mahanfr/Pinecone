@@ -54,6 +54,17 @@ impl IonicState {
         Ok(())
     }
 
+    pub fn get_mut_account(&mut self, addr: &IonicAddr) -> Result<&mut Account, TransactionError> {
+        let account = match self.accounts.get_mut(addr.as_ref()) {
+            Ok(op_ac) => match op_ac {
+                Some(ac) => ac,
+                None => return Err(TransactionError::InvalidAccount),
+            },
+            Err(_) => return Err(TransactionError::InvalidAccount),
+        };
+        Ok(account)
+    }
+
     pub fn get_account(&self, addr: &IonicAddr) -> Result<&Account, TransactionError> {
         let account = match self.accounts.get(addr.as_ref()) {
             Ok(op_ac) => match op_ac {

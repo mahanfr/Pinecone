@@ -142,6 +142,10 @@ impl Block {
         }
         base_fee
     }
+
+    pub fn get_tx(&self, index: usize) -> Option<&Transaction> {
+        self.transactions.get(index)
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{collections::{HashMap, VecDeque}, fmt::Display};
 
 use crate::{
     accounts::Account,
@@ -12,16 +12,20 @@ use crate::{
 #[derive(Debug)]
 pub struct Blockchain {
     pub id: u64,
-    pub chain: Vec<Block>,
+    pub chain: VecDeque<Block>,
     pub state: IonicState,
+    pub cache: HashMap<IonicAddr, Account>,
 }
 
 impl Blockchain {
     pub fn new(chain_id: u64) -> Self {
+        let mut chain = VecDeque::new();
+        chain.push_back(Self::genesis(chain_id));
         Self {
             id: chain_id,
-            chain: vec![Self::genesis(chain_id)],
+            chain,
             state: IonicState::new(chain_id),
+            cache: HashMap::new(),
         }
     }
 
@@ -69,7 +73,7 @@ impl Blockchain {
     }
 
     pub fn head(&self) -> Option<&Block> {
-        self.chain.last()
+        self.chain.front()
     }
 
     pub fn base_fee(&self) -> u128 {
@@ -77,6 +81,22 @@ impl Blockchain {
             Some(head) => head.next_base_fee(),
             None => Self::genesis(self.id).next_base_fee(),
         }
+    }
+
+    pub fn account(&self, addr: &IonicAddr) -> Result<&Account, TransactionError> {
+        self.state.get_account(addr)
+    }
+
+    pub fn account_mut(&mut self, addr: &IonicAddr) -> Option<&mut Account> {
+        self.state.get_mut_account(addr).ok()
+    }
+
+    pub fn balance(&self, addr: &IonicAddr) -> Result<u128, TransactionError> {
+        Ok(self.state.get_account(addr)?.balance)
+    }
+
+    pub fn code(&self, addr: &IonicAddr) -> Result<Vec<u8>, TransactionError> {
+        Ok(self.state.get_account(addr)?.code.clone())
     }
 }
 

@@ -1,10 +1,16 @@
 use std::fmt::Display;
 
-use ethnum::u256;
+use ethnum::{AsU256, u256};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct IonicMemory {
     data: Vec<u8>,
+}
+
+impl Default for IonicMemory {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl IonicMemory {
@@ -38,11 +44,10 @@ impl IonicMemory {
         self.data[offset..offset + 32].copy_from_slice(&value.to_le_bytes());
     }
 
-    pub fn msotre8(&mut self, offset: u256, len: u256, value: &[u8]) {
+    pub fn msotre8(&mut self, offset: u256, value: u256) {
         let offset = offset.as_usize();
-        let len = len.as_usize();
-        self.expand_memory_if_needed(offset, len);
-        self.data[offset..offset + len].copy_from_slice(value);
+        self.expand_memory_if_needed(offset, 1);
+        self.data[offset] = (value & 0xFF).as_u8();
     }
 
     pub fn mcopy(&mut self, offset: u256, len: u256, new_offset: u256) {
@@ -106,14 +111,8 @@ impl IonicMemory {
         3 * words + ((words * words) / 512)
     }
 
-    pub fn size(&self) -> usize {
-        self.data.len()
-    }
-}
-
-impl Default for IonicMemory {
-    fn default() -> Self {
-        Self::new()
+    pub fn size(&self) -> u256 {
+        self.data.len().as_u256()
     }
 }
 

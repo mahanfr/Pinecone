@@ -40,6 +40,10 @@ impl<T: Clone + ToBytes> SparseVerkleTrie<T> {
         ensure_key(key)?;
         Ok(self.root.get(key, 0))
     }
+    pub fn get_mut(&mut self, key: &[u8]) -> Result<Option<&mut T>, TrieError> {
+        ensure_key(key)?;
+        Ok(self.root.get_mut(key, 0))
+    }
     pub fn delete(&mut self, key: &[u8]) -> Result<bool, TrieError> {
         ensure_key(key)?;
         Ok(self.root.delete(key, 0))
@@ -166,6 +170,22 @@ impl<T: Clone + ToBytes> VerkleNode<T> {
                     .unwrap()
                     .insert(key, depth + 1, value);
             }
+        }
+    }
+
+    pub fn get_mut(&mut self, key: &[u8], depth: usize) -> Option<&mut T> {
+        if depth == KEY_LEN {
+            return match self {
+                Self::Leaf(leaf) => Some(&mut leaf.value),
+                _ => None,
+            };
+        }
+        match self {
+            Self::Empty => None,
+            Self::Leaf(_) => None,
+            Self::Branch(branch) => branch.children[key[depth] as usize]
+                .as_deref_mut()
+                .and_then(|child| child.get_mut(key, depth + 1)),
         }
     }
 

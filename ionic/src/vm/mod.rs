@@ -1,36 +1,39 @@
 pub mod instructions;
 pub mod memory;
 pub mod opcodes;
-use std::{error::Error, fmt::Display, ops::Not};
+pub mod logs;
+pub mod context;
+use std::{collections::HashMap, error::Error, fmt::Display, ops::Not};
 
 use ethnum::{AsU256, u256};
 
 use crate::{
-    blockchian::Blockchain,
-    transactions::Transaction,
-    types::IonicAddr,
-    utils::ToBytes,
-    vm::{
-        instructions::IonicInstr,
-        opcodes::IonicOpcode,
-    },
+    blockchian::Blockchain, blocks::Block, types::{IonicAddr, IonicHash}, utils::ToBytes, vm::{
+        context::ExecutionContext, instructions::IonicInstr, logs::IonicLog, memory::IonicMemory, opcodes::IonicOpcode
+    }
 };
 
+#[derive(Debug, Clone, Default)]
 pub struct VirtualMachine {
     pub stack: Vec<u256>,
     pub code: Vec<IonicInstr>,
+    pub memory: IonicMemory,
+    pub tstorage: HashMap<u256, u256>,
+    pub logs: Vec<IonicLog>,
     pub pc: usize,
     pub gas_used: u64,
+
+    pub ctx: ExecutionContext,
+    pub stopped: bool,
+    pub reverted: bool,
+    pub return_value: Vec<u8>,
+    raw_code: Vec<u8>,
+    pub call_depth: u32,
 }
 
 impl VirtualMachine {
     pub fn new() -> Self {
-        Self {
-            stack: Vec::new(),
-            code: Vec::new(),
-            pc: 0,
-            gas_used: 0,
-        }
+        Self::default()
     }
 
     pub fn parse(code: &[u8]) -> Result<Vec<IonicInstr>, VMExecutionError> {
@@ -53,19 +56,35 @@ impl VirtualMachine {
 
     pub fn load(&mut self, code: &[u8]) -> Result<(), VMExecutionError> {
         self.code = Self::parse(code)?;
+        self.raw_code = code.to_vec();
         Ok(())
     }
 
-    pub fn eval(
-        &mut self,
-        tx: &Transaction,
-        _blockchian: &Blockchain,
-    ) -> Result<(), VMExecutionError> {
+    pub fn eval(&mut self, tx_index: usize, blockchain: &Blockchain, block:Block) -> Result<(), VMExecutionError> {
+        let tx = &block.transactions[tx_index];
+        let sender_addr = tx.sender();
+
+        let ctx = ExecutionContext {
+            // TODO: derive_contract_addr(&sender_addr, tx.nonce) if none
+            address: tx.recepient.unwrap(),
+            origin: sender_addr,
+            caller: sender_addr,
+            call_value: tx.value,
+            gas_price: tx.gas_price(block.next_base_fee()).unwrap(),
+            calldata: tx.data.clone(),
+            return_data: Vec::new(),
+            is_static: false,
+        };
+        self.ctx = ctx;
+        self.run(blockchain)
+    }
+
+    pub fn run(&mut self, blockchain: &Blockchain) -> Result<(), VMExecutionError> {
         use opcodes::IonicOpcode::*;
         while self.pc < self.code.len() {
             let instr = self.code[self.pc];
             match &instr.opcode {
-                STOP => {
+                STOP | INVALID => {
                     break;
                 }
                 ADD | MUL | SUB | DIV | SDIV | MOD | SMOD | EXP | SIGNEXTEND | LT | GT | SLT
@@ -74,7 +93,23 @@ impl VirtualMachine {
                 }
                 ISZERO | NOT => self.eval_unary(&instr.opcode)?,
                 ADDMOD | MULMOD => self.eval_ternary(&instr.opcode)?,
-                CALLER => self.address(tx.sender()),
+                HASH => self.eval_hash()?,
+                ADDRESS => self.address(self.ctx.address),
+                BALANCE => {
+                    let addr = self.pop_internal()?;
+                    self.balance(addr.into(), blockchain)?
+                },
+                SELFBALANCE => {
+                    self.balance(self.ctx.address.into(), blockchain)?
+                }
+                ORIGIN => self.address(self.ctx.origin),
+                CALLER => self.address(self.ctx.caller),
+                CALLVALUE => self.call_value(),
+                CHAINID => {
+                    self.stack.push(blockchain.id.as_u256());
+                    self.pc += 1;
+                    self.gas_used += 2;
+                }
                 POP => self.pop()?,
                 PC => self.pc(),
                 GAS => self.gas(),
@@ -106,6 +141,16 @@ impl VirtualMachine {
                             .expect("Not a Swap Instruction"),
                     );
                 }
+                JUMP => self.jump()?,
+                JUMPI => self.jumpi()?,
+                JUMPDEST => (),
+                MSTORE => self.mstore()?,
+                MSTORE8 => self.mstore8()?,
+                MLOAD => self.mload()?,
+                MSIZE => self.msize(),
+                MCOPY => self.mcpy()?,
+                TSTORE => self.tstore()?,
+                TLOAD => self.tload()?,
                 _ => todo!(),
             }
         }
@@ -273,6 +318,120 @@ impl VirtualMachine {
         Ok(())
     }
 
+    fn call_value(&mut self) {
+        self.stack.push(self.ctx.call_value.as_u256());
+        self.pc += 1;
+        self.gas_used += 2;
+    }
+
+    fn balance(&mut self, addr: IonicAddr, blockchian: &Blockchain) -> Result<(), VMExecutionError> {
+        let balance = blockchian.balance(&addr.into()).unwrap_or_default();
+        self.stack.push(balance.as_u256());
+        self.pc += 1;
+        // TODO: implemet hot and cold state
+        self.gas_used += 100;
+        Ok(())
+    }
+
+    fn eval_hash(&mut self) -> Result<(), VMExecutionError> {
+        let len = self.pop_internal()?;
+        let ost = self.pop_internal()?;
+        let data = self.memory.mload8(ost, len);
+        let hash : IonicHash = blake3::hash(&data).into();
+        self.stack.push(hash.into());
+        self.pc += 1;
+        let data_size_words = (len + 31 / 32).as_u64();
+        let gas_cost = 30 + 6 * data_size_words + 3;
+        self.gas_used += gas_cost;
+        Ok(())
+    }
+
+    fn jump(&mut self) -> Result<(), VMExecutionError> {
+        let dest = self.pop_internal()?.as_usize();
+        if self.code[dest].opcode != IonicOpcode::JUMPDEST {
+            return Err(VMExecutionError::InvalidJumpDest(dest));
+        }
+        self.pc = dest;
+        self.gas_used += 1;
+        Ok(())
+    }
+
+    fn tstore(&mut self) -> Result<(), VMExecutionError>{
+        let value = self.pop_internal()?;
+        let key_val = self.pop_internal()?;
+        self.tstorage.insert(key_val, value);
+        self.pc += 1;
+        self.gas_used += 100;
+        Ok(())
+    }
+
+    fn tload(&mut self) -> Result<(), VMExecutionError> {
+        let key = self.pop_internal()?;
+        let Some(value) = self.tstorage.get(&key) else {
+            return Err(VMExecutionError::TransiantKeyNotFound(key));
+        };
+        self.stack.push(*value);
+        self.pc += 1;
+        self.gas_used += 100;
+        Ok(())
+    }
+
+    fn mcpy(&mut self) -> Result<(), VMExecutionError> {
+        let len = self.pop_internal()?;
+        let ost = self.pop_internal()?;
+        let destost = self.pop_internal()?;
+        let cost = self.memory.expantion_cost(destost, len);
+        self.memory.mcopy(ost, len, destost);
+        self.pc += 1;
+        self.gas_used += cost;
+        Ok(())
+    }
+
+    fn msize(&mut self) {
+        self.stack.push(self.memory.size());
+        self.pc += 1;
+        self.gas_used += 2;
+    }
+
+    fn mstore8(&mut self) -> Result<(), VMExecutionError> {
+        let value = self.pop_internal()?;
+        let offset = self.pop_internal()?;
+        let cost = self.memory.expantion_cost(offset, 1.as_u256());
+        self.memory.msotre8(offset, value);
+        self.pc += 1;
+        self.gas_used += cost;
+        Ok(())
+    }
+
+    fn mstore(&mut self) -> Result<(), VMExecutionError> {
+        let value = self.pop_internal()?;
+        let offset = self.pop_internal()?;
+        let cost = self.memory.expantion_cost(offset, 32.as_u256());
+        self.memory.mstore(offset, value);
+        self.pc += 1;
+        self.gas_used += cost;
+        Ok(())
+    }
+
+    fn mload(&mut self) -> Result<(), VMExecutionError> {
+        let offset = self.pop_internal()?;
+        let value = self.memory.mload(offset);
+        self.stack.push(value);
+        self.pc += 1;
+        self.gas_used += 3;
+        Ok(())
+    }
+
+    fn jumpi(&mut self) -> Result<(), VMExecutionError> {
+        let cond = self.pop_internal()?;
+        if cond > 0 {
+            self.jump()?;
+        } else {
+            self.pc += 1;
+        }
+        Ok(())
+    }
+
     fn pc(&mut self) {
         self.stack.push(self.pc.as_u256());
         self.pc += 1;
@@ -345,7 +504,8 @@ pub enum VMExecutionError {
     IllegalInstruction(u8),
     InvalidSize,
     SyntaxError(IonicInstr),
-    InvalidPC(u64),
+    InvalidJumpDest(usize),
+    TransiantKeyNotFound(u256),
     UnaryOverflow(usize, IonicOpcode, u256),
     BinaryOverflow(usize, IonicOpcode, u256, u256),
     TernaryOverflow(usize, IonicOpcode, u256, u256, u256),
@@ -358,8 +518,9 @@ impl Display for VMExecutionError {
         match self {
             Self::SyntaxError(opr) => write!(f, "Syntax Error at ({})", opr),
             Self::IllegalInstruction(val) => write!(f, "Illegal Instruction: ({val})"),
+            Self::TransiantKeyNotFound(key) => write!(f, "Transiant Storage dose not have a key: {key}"),
             Self::InvalidSize => write!(f, "Invalid Size"),
-            Self::InvalidPC(pc) => write!(f, "Invalid PC: there is no instruction at ${pc}"),
+            Self::InvalidJumpDest(pc) => write!(f, "Invalid Jump Dest: expected JUMPDEST at ${pc}"),
             Self::UnaryOverflow(pc, instr, a) => {
                 write!(f, "Operation Overflow at ${pc}: {instr} {a}")
             }

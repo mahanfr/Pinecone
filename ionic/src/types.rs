@@ -99,6 +99,12 @@ impl Into<[u8; 32]> for IonicHash {
     }
 }
 
+impl Into<u256> for IonicHash {
+    fn into(self) -> u256 {
+        u256::from_le_bytes(self.hash)
+    }
+}
+
 impl ToBytes for IonicHash {
     fn to_bytes(&self) -> Vec<u8> {
         self.hash.to_vec()
@@ -145,6 +151,14 @@ impl Into<[u8; 32]> for IonicAddr {
 impl Into<u256> for IonicAddr {
     fn into(self) -> u256 {
         u256::from_le_bytes(self.addr)
+    }
+}
+
+impl From<u256> for IonicAddr {
+    fn from(value: u256) -> Self {
+        Self {
+            addr: value.to_le_bytes(),
+        }
     }
 }
 
