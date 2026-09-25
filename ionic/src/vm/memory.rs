@@ -23,7 +23,7 @@ impl IonicMemory {
         let len = len.as_usize();
         let data_offset = data_offset.as_usize();
         let mut slice = Vec::new();
-        let arr = &data[data_offset..data_offset+len];
+        let arr = &data[data_offset..data_offset + len];
         slice.extend_from_slice(arr);
         let padded_len = (len + 31) / 32;
         slice.resize(padded_len, 0);

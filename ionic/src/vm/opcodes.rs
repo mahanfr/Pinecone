@@ -62,8 +62,8 @@ pub enum IonicOpcode {
     MLOAD = 0x51,
     MSTORE = 0x52,
     MSTORE8 = 0x53,
-    SLOAD = 0x54,    // TODO
-    SSTORE = 0x55,   // TODO
+    SLOAD = 0x54,  // TODO
+    SSTORE = 0x55, // TODO
     JUMP = 0x56,
     JUMPI = 0x57,
     PC = 0x58,

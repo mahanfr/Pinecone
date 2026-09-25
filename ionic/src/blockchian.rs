@@ -1,4 +1,7 @@
-use std::{collections::{HashMap, VecDeque}, fmt::Display};
+use std::{
+    collections::{HashMap, VecDeque},
+    fmt::Display,
+};
 
 use crate::{
     accounts::Account,

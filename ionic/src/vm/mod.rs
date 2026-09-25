@@ -1,16 +1,21 @@
+pub mod context;
 pub mod instructions;
+pub mod logs;
 pub mod memory;
 pub mod opcodes;
-pub mod logs;
-pub mod context;
 use std::{collections::HashMap, error::Error, fmt::Display, ops::Not};
 
 use ethnum::{AsU256, u256};
 
 use crate::{
-    blockchian::Blockchain, blocks::Block, types::{IonicAddr, IonicHash}, utils::ToBytes, vm::{
-        context::ExecutionContext, instructions::IonicInstr, logs::IonicLog, memory::IonicMemory, opcodes::IonicOpcode
-    }
+    blockchian::Blockchain,
+    blocks::Block,
+    types::{IonicAddr, IonicHash},
+    utils::ToBytes,
+    vm::{
+        context::ExecutionContext, instructions::IonicInstr, logs::IonicLog, memory::IonicMemory,
+        opcodes::IonicOpcode,
+    },
 };
 
 #[derive(Debug, Clone, Default)]
@@ -60,7 +65,12 @@ impl VirtualMachine {
         Ok(())
     }
 
-    pub fn eval(&mut self, tx_index: usize, blockchain: &Blockchain, block:Block) -> Result<(), VMExecutionError> {
+    pub fn eval(
+        &mut self,
+        tx_index: usize,
+        blockchain: &Blockchain,
+        block: Block,
+    ) -> Result<(), VMExecutionError> {
         let tx = &block.transactions[tx_index];
         let sender_addr = tx.sender();
 
@@ -98,37 +108,30 @@ impl VirtualMachine {
                 BALANCE => {
                     let addr = self.pop_internal()?;
                     self.balance(addr.into(), blockchain)?
-                },
-                SELFBALANCE => {
-                    self.balance(self.ctx.address.into(), blockchain)?
                 }
+                SELFBALANCE => self.balance(self.ctx.address.into(), blockchain)?,
                 ORIGIN => self.address(self.ctx.origin),
                 CALLER => self.address(self.ctx.caller),
-                CALLVALUE => self.call_value(),
+                CALLVALUE => self.stack.push(self.ctx.call_value.as_u256()),
                 CALLDATALOAD => {
                     let off = self.pop_internal()?.as_usize();
-                    let calldata: [u8;32] = self.ctx.calldata[off..off+32].try_into().unwrap();
+                    let calldata: [u8; 32] = self.ctx.calldata[off..off + 32].try_into().unwrap();
                     self.stack.push(u256::from_le_bytes(calldata));
-                    self.pc += 1;
-                    self.gas_used += 3;
                 }
                 CALLDATASIZE => {
                     self.stack.push(self.ctx.calldata.len().as_u256());
-                    self.pc += 1;
-                    self.gas_used += 2;
-                },
+                }
                 CALLDATACOPY => {
                     let len = self.pop_internal()?;
                     let ost = self.pop_internal()?;
                     let destost = self.pop_internal()?;
                     let cost = self.memory.expantion_cost(destost, len);
-                    self.memory.write_padded(destost, len, ost, &self.ctx.calldata);
+                    self.memory
+                        .write_padded(destost, len, ost, &self.ctx.calldata);
                     self.gas_used += cost;
                 }
                 CHAINID => {
                     self.stack.push(blockchain.id.as_u256());
-                    self.pc += 1;
-                    self.gas_used += 2;
                 }
                 POP => self.pop()?,
                 PC => self.pc(),
@@ -161,18 +164,26 @@ impl VirtualMachine {
                             .expect("Not a Swap Instruction"),
                     );
                 }
-                JUMP => self.jump()?,
-                JUMPI => self.jumpi()?,
+                JUMP => {
+                    self.jump()?;
+                    continue;
+                }
+                JUMPI => {
+                    self.jumpi()?;
+                    continue;
+                }
                 JUMPDEST => (),
                 MSTORE => self.mstore()?,
                 MSTORE8 => self.mstore8()?,
                 MLOAD => self.mload()?,
-                MSIZE => self.msize(),
+                MSIZE => self.stack.push(self.memory.size()),
                 MCOPY => self.mcpy()?,
                 TSTORE => self.tstore()?,
                 TLOAD => self.tload()?,
                 _ => todo!(),
             }
+            self.pc += 1;
+            self.gas_used += instr.opcode.gas().unwrap_or_default();
         }
         Ok(())
     }
@@ -184,8 +195,6 @@ impl VirtualMachine {
             IonicOpcode::NOT => self.stack.push(a.not()),
             _ => unreachable!("Not an Unary Operation"),
         }
-        self.pc += 1;
-        self.gas_used += opcode.gas().unwrap_or(3);
         Ok(())
     }
 
@@ -209,8 +218,6 @@ impl VirtualMachine {
             ));
         };
         self.stack.push(rem);
-        self.pc += 1;
-        self.gas_used += opcode.gas().unwrap_or(8);
         Ok(())
     }
 
@@ -333,23 +340,16 @@ impl VirtualMachine {
         } else {
             return Err(VMExecutionError::BinaryOverflow(self.pc, *opcode, a, b));
         }
-        self.gas_used += opcode.gas().unwrap_or_default();
-        self.pc += 1;
         Ok(())
     }
 
-    fn call_value(&mut self) {
-        self.stack.push(self.ctx.call_value.as_u256());
-        self.pc += 1;
-        self.gas_used += 2;
-    }
-
-    fn balance(&mut self, addr: IonicAddr, blockchian: &Blockchain) -> Result<(), VMExecutionError> {
+    fn balance(
+        &mut self,
+        addr: IonicAddr,
+        blockchian: &Blockchain,
+    ) -> Result<(), VMExecutionError> {
         let balance = blockchian.balance(&addr.into()).unwrap_or_default();
         self.stack.push(balance.as_u256());
-        self.pc += 1;
-        // TODO: implemet hot and cold state
-        self.gas_used += 100;
         Ok(())
     }
 
@@ -357,9 +357,8 @@ impl VirtualMachine {
         let len = self.pop_internal()?;
         let ost = self.pop_internal()?;
         let data = self.memory.mload8(ost, len);
-        let hash : IonicHash = blake3::hash(&data).into();
+        let hash: IonicHash = blake3::hash(&data).into();
         self.stack.push(hash.into());
-        self.pc += 1;
         let data_size_words = (len + 31 / 32).as_u64();
         let gas_cost = 30 + 6 * data_size_words + 3;
         self.gas_used += gas_cost;
@@ -372,16 +371,13 @@ impl VirtualMachine {
             return Err(VMExecutionError::InvalidJumpDest(dest));
         }
         self.pc = dest;
-        self.gas_used += 1;
         Ok(())
     }
 
-    fn tstore(&mut self) -> Result<(), VMExecutionError>{
+    fn tstore(&mut self) -> Result<(), VMExecutionError> {
         let value = self.pop_internal()?;
         let key_val = self.pop_internal()?;
         self.tstorage.insert(key_val, value);
-        self.pc += 1;
-        self.gas_used += 100;
         Ok(())
     }
 
@@ -391,8 +387,6 @@ impl VirtualMachine {
             return Err(VMExecutionError::TransiantKeyNotFound(key));
         };
         self.stack.push(*value);
-        self.pc += 1;
-        self.gas_used += 100;
         Ok(())
     }
 
@@ -402,15 +396,8 @@ impl VirtualMachine {
         let destost = self.pop_internal()?;
         let cost = self.memory.expantion_cost(destost, len);
         self.memory.mcopy(ost, len, destost);
-        self.pc += 1;
         self.gas_used += cost;
         Ok(())
-    }
-
-    fn msize(&mut self) {
-        self.stack.push(self.memory.size());
-        self.pc += 1;
-        self.gas_used += 2;
     }
 
     fn mstore8(&mut self) -> Result<(), VMExecutionError> {
@@ -418,7 +405,6 @@ impl VirtualMachine {
         let offset = self.pop_internal()?;
         let cost = self.memory.expantion_cost(offset, 1.as_u256());
         self.memory.msotre8(offset, value);
-        self.pc += 1;
         self.gas_used += cost;
         Ok(())
     }
@@ -428,7 +414,6 @@ impl VirtualMachine {
         let offset = self.pop_internal()?;
         let cost = self.memory.expantion_cost(offset, 32.as_u256());
         self.memory.mstore(offset, value);
-        self.pc += 1;
         self.gas_used += cost;
         Ok(())
     }
@@ -437,8 +422,6 @@ impl VirtualMachine {
         let offset = self.pop_internal()?;
         let value = self.memory.mload(offset);
         self.stack.push(value);
-        self.pc += 1;
-        self.gas_used += 3;
         Ok(())
     }
 
@@ -446,42 +429,30 @@ impl VirtualMachine {
         let cond = self.pop_internal()?;
         if cond > 0 {
             self.jump()?;
-        } else {
-            self.pc += 1;
         }
         Ok(())
     }
 
     fn pc(&mut self) {
         self.stack.push(self.pc.as_u256());
-        self.pc += 1;
-        self.gas_used += 2;
     }
 
     fn gas(&mut self) {
         self.stack.push(self.gas_used.as_u256());
-        self.pc += 1;
-        self.gas_used += 2;
     }
 
     fn address(&mut self, sender: IonicAddr) {
         self.stack.push(sender.into());
-        self.pc += 1;
-        self.gas_used += 2;
     }
 
     fn push(&mut self, val: u256) {
         self.stack.push(val);
-        self.pc += 1;
-        self.gas_used += 2;
     }
 
     fn dup(&mut self, nth: u8) {
         let last = self.stack.len() - nth as usize;
         let duped = self.stack[last];
         self.stack.push(duped);
-        self.pc += 1;
-        self.gas_used += 3;
     }
 
     fn swap(&mut self, nth: u8) {
@@ -491,14 +462,10 @@ impl VirtualMachine {
         let target = self.stack[last - nth];
         self.stack[last - nth] = swapable;
         self.stack[last] = target;
-        self.pc += 1;
-        self.gas_used += 3;
     }
 
     fn pop(&mut self) -> Result<(), VMExecutionError> {
         self.pop_internal()?;
-        self.pc += 1;
-        self.gas_used += IonicOpcode::POP.gas().unwrap();
         Ok(())
     }
 
@@ -538,7 +505,9 @@ impl Display for VMExecutionError {
         match self {
             Self::SyntaxError(opr) => write!(f, "Syntax Error at ({})", opr),
             Self::IllegalInstruction(val) => write!(f, "Illegal Instruction: ({val})"),
-            Self::TransiantKeyNotFound(key) => write!(f, "Transiant Storage dose not have a key: {key}"),
+            Self::TransiantKeyNotFound(key) => {
+                write!(f, "Transiant Storage dose not have a key: {key}")
+            }
             Self::InvalidSize => write!(f, "Invalid Size"),
             Self::InvalidJumpDest(pc) => write!(f, "Invalid Jump Dest: expected JUMPDEST at ${pc}"),
             Self::UnaryOverflow(pc, instr, a) => {
