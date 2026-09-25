@@ -69,7 +69,7 @@ impl VirtualMachine {
         &mut self,
         tx_index: usize,
         blockchain: &Blockchain,
-        block: Block,
+        block: &Block,
     ) -> Result<(), VMExecutionError> {
         let tx = &block.transactions[tx_index];
         let sender_addr = tx.sender();
@@ -86,10 +86,10 @@ impl VirtualMachine {
             is_static: false,
         };
         self.ctx = ctx;
-        self.run(blockchain)
+        self.run(block, blockchain)
     }
 
-    pub fn run(&mut self, blockchain: &Blockchain) -> Result<(), VMExecutionError> {
+    pub fn run(&mut self, block: &Block, blockchain: &Blockchain) -> Result<(), VMExecutionError> {
         use opcodes::IonicOpcode::*;
         while self.pc < self.code.len() {
             let instr = self.code[self.pc];
@@ -107,9 +107,25 @@ impl VirtualMachine {
                 ADDRESS => self.address(self.ctx.address),
                 BALANCE => {
                     let addr = self.pop_internal()?;
+                    self.gas_used += 2100;
                     self.balance(addr.into(), blockchain)?
                 }
-                SELFBALANCE => self.balance(self.ctx.address.into(), blockchain)?,
+                SELFBALANCE => {
+                    self.balance(self.ctx.address.into(), blockchain)?
+                }
+                BASEFEE => {
+                    self.stack.push(blockchain.base_fee().as_u256());
+                }
+                GASLIMIT => {
+                    self.stack.push(block.header.gas_limit.as_u256());
+                }
+                TIMESTAMP => {
+                    self.stack.push(block.header.timestamp.as_u256());
+                }
+                COINBASE => {
+                    let proposer_addr = IonicAddr::from_pk(&block.header.proposer);
+                    self.stack.push(proposer_addr.into());
+                }
                 ORIGIN => self.address(self.ctx.origin),
                 CALLER => self.address(self.ctx.caller),
                 CALLVALUE => self.stack.push(self.ctx.call_value.as_u256()),
