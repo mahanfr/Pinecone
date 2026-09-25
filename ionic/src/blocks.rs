@@ -20,6 +20,7 @@ pub struct Block {
 
 impl Block {
     pub fn new_unsigned(
+        index: u64,
         position: BlockPos,
         chain_id: u64,
         previous_hash: IonicHash,
@@ -29,6 +30,7 @@ impl Block {
     ) -> Self {
         let header = BlockHeader {
             version: BLOCK_VERSION,
+            index,
             chain_id,
             position,
             previous_hash,
@@ -50,6 +52,7 @@ impl Block {
 
     pub fn new_signed(
         sk: &SigningKey,
+        index: u64,
         position: BlockPos,
         chain_id: u64,
         previous_hash: IonicHash,
@@ -58,6 +61,7 @@ impl Block {
         transactions: Vec<Transaction>,
     ) -> Self {
         let mut block = Self::new_unsigned(
+            index,
             position,
             chain_id,
             previous_hash,
@@ -151,6 +155,7 @@ impl Block {
 #[derive(Debug, Clone, Copy)]
 pub struct BlockHeader {
     pub version: u8,
+    pub index: u64,
     pub chain_id: u64,
     pub position: BlockPos,
     pub previous_hash: IonicHash,
@@ -161,7 +166,7 @@ pub struct BlockHeader {
     pub gas_limit: u64,
     pub gas_used: u64,
     pub base_fee: u128,
-    // pub previous_rando // useed for smart contract random opcode
+    // pub previous_rando // used for smart contract random opcode
 }
 
 impl BlockHeader {
@@ -170,6 +175,7 @@ impl BlockHeader {
 
         bytes.push(self.version);
         bytes.extend_from_slice(&self.chain_id.to_le_bytes());
+        bytes.extend_from_slice(&self.index.to_le_bytes());
         bytes.extend_from_slice(&self.position.to_bytes());
         bytes.extend_from_slice(&self.previous_hash.as_ref());
         bytes.extend_from_slice(&self.timestamp.to_le_bytes());

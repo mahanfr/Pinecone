@@ -65,8 +65,9 @@ impl Blockchain {
         let transactions = Vec::new();
 
         let mut block = Block::new_unsigned(
-            crate::types::BlockPos::new(0, 0),
             chain_id,
+            crate::types::BlockPos::new(0, 0),
+            0,
             IonicHash::default(),
             IonicPK::default(),
             IonicHash::default(),
@@ -78,6 +79,15 @@ impl Blockchain {
 
     pub fn head(&self) -> Option<&Block> {
         self.chain.front()
+    }
+
+    pub fn get_block(&self, index: u64) -> Option<&Block> {
+        for block in self.chain.iter() {
+            if block.header.index == index {
+                return Some(block);
+            }
+        }
+        None
     }
 
     pub fn base_fee(&self) -> u128 {

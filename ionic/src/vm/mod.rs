@@ -110,14 +110,18 @@ impl VirtualMachine {
                     self.gas_used += 2100;
                     self.balance(addr.into(), blockchain)?
                 }
-                SELFBALANCE => {
-                    self.balance(self.ctx.address.into(), blockchain)?
-                }
+                SELFBALANCE => self.balance(self.ctx.address.into(), blockchain)?,
                 BASEFEE => {
                     self.stack.push(blockchain.base_fee().as_u256());
                 }
                 GASLIMIT => {
                     self.stack.push(block.header.gas_limit.as_u256());
+                }
+                GASPRICE => {
+                    self.stack.push(self.ctx.gas_price.as_u256());
+                }
+                NUMBER => {
+                    self.stack.push(block.header.index.as_u256());
                 }
                 TIMESTAMP => {
                     self.stack.push(block.header.timestamp.as_u256());
@@ -125,6 +129,14 @@ impl VirtualMachine {
                 COINBASE => {
                     let proposer_addr = IonicAddr::from_pk(&block.header.proposer);
                     self.stack.push(proposer_addr.into());
+                }
+                BLOCKHASH => {
+                    let index = self.pop_internal()?;
+                    if let Some(block) = blockchain.get_block(index.as_u64()) {
+                        self.stack.push(block.hash().into())
+                    } else {
+                        self.stack.push(u256::ZERO);
+                    }
                 }
                 ORIGIN => self.address(self.ctx.origin),
                 CALLER => self.address(self.ctx.caller),
@@ -144,6 +156,51 @@ impl VirtualMachine {
                     let cost = self.memory.expantion_cost(destost, len);
                     self.memory
                         .write_padded(destost, len, ost, &self.ctx.calldata);
+                    self.gas_used += cost;
+                }
+                CODESIZE => self.stack.push(self.raw_code.len().as_u256()),
+                CODECOPY => {
+                    let len = self.pop_internal()?;
+                    let ost = self.pop_internal()?;
+                    let destost = self.pop_internal()?;
+                    let cost = self.memory.expantion_cost(destost, len);
+                    self.memory.write_padded(destost, len, ost, &self.raw_code);
+                    self.gas_used += cost;
+                }
+                EXTCODESIZE => {
+                    let addr = self.pop_internal()?;
+                    self.gas_used += 2100;
+                    let code = blockchain.code(&addr.into()).unwrap_or_default();
+                    self.stack.push(code.len().as_u256());
+                }
+                EXTCODECOPY => {
+                    let len = self.pop_internal()?;
+                    let ost = self.pop_internal()?;
+                    let destost = self.pop_internal()?;
+                    let addr = self.pop_internal()?;
+                    self.gas_used += 2100;
+                    let code = blockchain.code(&addr.into()).unwrap_or_default();
+                    let cost = self.memory.expantion_cost(destost, len);
+                    self.memory.write_padded(destost, len, ost, &code);
+                    self.gas_used += cost;
+                }
+                EXTCODEHASH => {
+                    let addr = self.pop_internal()?;
+                    self.gas_used += 2100;
+                    let code = blockchain.code(&addr.into()).unwrap_or_default();
+                    let hash: IonicHash = blake3::hash(&code).into();
+                    self.stack.push(hash.into());
+                }
+                RETURNDATASIZE => {
+                    self.stack.push(self.ctx.return_data.len().as_u256());
+                }
+                RETURNDATACOPY => {
+                    let len = self.pop_internal()?;
+                    let ost = self.pop_internal()?;
+                    let destost = self.pop_internal()?;
+                    let cost = self.memory.expantion_cost(destost, len);
+                    self.memory
+                        .write_padded(destost, len, ost, &self.ctx.return_data);
                     self.gas_used += cost;
                 }
                 CHAINID => {
