@@ -24,7 +24,6 @@ pub struct VirtualMachine {
     pub code: Vec<IonicInstr>,
     pub memory: IonicMemory,
     pub tstorage: HashMap<u256, u256>,
-    pub logs: Vec<IonicLog>,
     pub pc: usize,
     pub gas_used: u64,
 
@@ -82,6 +81,7 @@ impl VirtualMachine {
             call_value: tx.value,
             gas_price: tx.gas_price(block.next_base_fee()).unwrap(),
             calldata: tx.data.clone(),
+            logs: Vec::new(),
             return_data: Vec::new(),
             is_static: false,
         };
@@ -253,6 +253,9 @@ impl VirtualMachine {
                 MCOPY => self.mcpy()?,
                 TSTORE => self.tstore()?,
                 TLOAD => self.tload()?,
+                LOG0 | LOG1 | LOG2 | LOG3 | LOG4 => {
+                    self.log(instr.opcode.log_topics().expect("Not a Log instruction"))?;
+                }
                 _ => todo!(),
             }
             self.pc += 1;
@@ -547,6 +550,24 @@ impl VirtualMachine {
             return Err(VMExecutionError::EmptyStack(self.pc, self.get_instr()));
         };
         return Ok(val);
+    }
+
+    fn log(&mut self, num_topics: u8) -> Result<(), VMExecutionError> {
+        let len = self.pop_internal()?;
+        let ost = self.pop_internal()?;
+        let data = self.memory.mload8(ost, len);
+        let mut topics = Vec::new();
+        for _ in 0..num_topics {
+            let topic = self.pop_internal()?;
+            topics.push(topic);
+        }
+        let log = IonicLog {
+            address: self.ctx.address,
+            topics,
+            data,
+        };
+        self.ctx.logs.push(log);
+        Ok(())
     }
 
     fn get_instr(&self) -> IonicInstr {
