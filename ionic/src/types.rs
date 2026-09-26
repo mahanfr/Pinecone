@@ -105,6 +105,14 @@ impl Into<u256> for IonicHash {
     }
 }
 
+impl From<u256> for IonicHash {
+    fn from(value: u256) -> Self {
+        Self {
+            hash: value.to_le_bytes(),
+        }
+    }
+}
+
 impl ToBytes for IonicHash {
     fn to_bytes(&self) -> Vec<u8> {
         self.hash.to_vec()

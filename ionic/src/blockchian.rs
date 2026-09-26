@@ -3,6 +3,8 @@ use std::{
     fmt::Display,
 };
 
+use ethnum::u256;
+
 use crate::{
     accounts::Account,
     blocks::Block,
@@ -101,8 +103,8 @@ impl Blockchain {
         self.state.get_account(addr)
     }
 
-    pub fn account_mut(&mut self, addr: &IonicAddr) -> Option<&mut Account> {
-        self.state.get_mut_account(addr).ok()
+    pub fn account_mut(&mut self, addr: &IonicAddr) -> Result<&mut Account, TransactionError> {
+        self.state.get_mut_account(addr)
     }
 
     pub fn balance(&self, addr: &IonicAddr) -> Result<u128, TransactionError> {
@@ -111,6 +113,29 @@ impl Blockchain {
 
     pub fn code(&self, addr: &IonicAddr) -> Result<Vec<u8>, TransactionError> {
         Ok(self.state.get_account(addr)?.code.clone())
+    }
+
+    pub fn sload(&self, addr: &IonicAddr, key: &IonicHash) -> Result<&u256, TransactionError> {
+        let account = self.account(addr)?;
+        Ok(account
+            .storage
+            .get(key.as_ref())
+            .expect("key type can should not cause an error")
+            .unwrap_or_else(|| &u256::ZERO))
+    }
+
+    pub fn sstore(
+        &mut self,
+        addr: &IonicAddr,
+        key: IonicHash,
+        value: u256,
+    ) -> Result<(), TransactionError> {
+        let account = self.account_mut(addr)?;
+        account
+            .storage
+            .insert(key.as_ref(), value)
+            .expect("key type should not cause an error");
+        Ok(())
     }
 }
 

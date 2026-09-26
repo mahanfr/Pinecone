@@ -24,6 +24,7 @@ pub struct VirtualMachine {
     pub code: Vec<IonicInstr>,
     pub memory: IonicMemory,
     pub tstorage: HashMap<u256, u256>,
+    pub storage: HashMap<u256, u256>,
     pub pc: usize,
     pub gas_used: u64,
 
@@ -87,6 +88,13 @@ impl VirtualMachine {
         };
         self.ctx = ctx;
         self.run(block, blockchain)
+    }
+
+    pub fn apply(&mut self, blockchain: &mut Blockchain) {
+        let addr = self.ctx.address;
+        for (key, value) in self.storage.iter() {
+            let _ = blockchain.sstore(&addr, (*key).into(), *value);
+        }
     }
 
     pub fn run(&mut self, block: &Block, blockchain: &Blockchain) -> Result<(), VMExecutionError> {
@@ -253,6 +261,8 @@ impl VirtualMachine {
                 MCOPY => self.mcpy()?,
                 TSTORE => self.tstore()?,
                 TLOAD => self.tload()?,
+                SSTORE => self.sstore()?,
+                SLOAD => self.sload(blockchain)?,
                 LOG0 | LOG1 | LOG2 | LOG3 | LOG4 => {
                     self.log(instr.opcode.log_topics().expect("Not a Log instruction"))?;
                 }
@@ -463,6 +473,22 @@ impl VirtualMachine {
             return Err(VMExecutionError::TransiantKeyNotFound(key));
         };
         self.stack.push(*value);
+        Ok(())
+    }
+
+    fn sload(&mut self, blockchian: &Blockchain) -> Result<(), VMExecutionError> {
+        let key = self.pop_internal()?;
+        let value = blockchian
+            .sload(&self.ctx.address, &key.to_owned().into())
+            .unwrap_or(&u256::ZERO);
+        self.stack.push(*value);
+        Ok(())
+    }
+
+    fn sstore(&mut self) -> Result<(), VMExecutionError> {
+        let key = self.pop_internal()?;
+        let value = self.pop_internal()?;
+        self.storage.insert(key, value);
         Ok(())
     }
 

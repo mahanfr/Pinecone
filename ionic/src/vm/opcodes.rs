@@ -138,11 +138,11 @@ pub enum IonicOpcode {
     SWAP14 = 0x9D,
     SWAP15 = 0x9E,
     SWAP16 = 0x9F,
-    LOG0 = 0xA0,         // TODO
-    LOG1 = 0xA1,         // TODO
-    LOG2 = 0xA2,         // TODO
-    LOG3 = 0xA3,         // TODO
-    LOG4 = 0xA4,         // TODO
+    LOG0 = 0xA0,
+    LOG1 = 0xA1,
+    LOG2 = 0xA2,
+    LOG3 = 0xA3,
+    LOG4 = 0xA4,
     CREATE = 0xF0,       // TODO
     CALL = 0xF1,         // TODO
     CALLCODE = 0xF2,     // TODO
