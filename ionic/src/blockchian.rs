@@ -12,6 +12,7 @@ use crate::{
     state::IonicState,
     transactions::TransactionError,
     types::{IonicAddr, IonicHash, IonicPK},
+    vm::VMExecutionError,
 };
 
 #[derive(Debug)]
@@ -99,23 +100,48 @@ impl Blockchain {
         }
     }
 
-    pub fn account(&self, addr: &IonicAddr) -> Result<&Account, TransactionError> {
-        self.state.get_account(addr)
+    pub fn account(&self, addr: &IonicAddr) -> Result<&Account, VMExecutionError> {
+        self.state.get_account(addr).map_err(|e| e.into())
     }
 
-    pub fn account_mut(&mut self, addr: &IonicAddr) -> Result<&mut Account, TransactionError> {
-        self.state.get_mut_account(addr)
+    pub fn account_mut(&mut self, addr: &IonicAddr) -> Result<&mut Account, VMExecutionError> {
+        self.state.get_mut_account(addr).map_err(|e| e.into())
     }
 
-    pub fn balance(&self, addr: &IonicAddr) -> Result<u128, TransactionError> {
+    pub fn balance(&self, addr: &IonicAddr) -> Result<u128, VMExecutionError> {
         Ok(self.state.get_account(addr)?.balance)
     }
 
-    pub fn code(&self, addr: &IonicAddr) -> Result<Vec<u8>, TransactionError> {
+    pub fn code(&self, addr: &IonicAddr) -> Result<Vec<u8>, VMExecutionError> {
         Ok(self.state.get_account(addr)?.code.clone())
     }
 
-    pub fn sload(&self, addr: &IonicAddr, key: &IonicHash) -> Result<&u256, TransactionError> {
+    pub fn set_code(
+        &mut self,
+        new_addr: &IonicAddr,
+        code: Vec<u8>,
+    ) -> Result<(), VMExecutionError> {
+        self.account_mut(new_addr)?.code = code;
+        Ok(())
+    }
+
+    pub fn transfer(
+        &mut self,
+        sender: &IonicAddr,
+        new_addr: &IonicAddr,
+        value: u128,
+    ) -> Result<(), VMExecutionError> {
+        self.account_mut(sender)?.balance -= value;
+        self.account_mut(new_addr)?.balance += value;
+        Ok(())
+    }
+
+    pub fn selfdestruct(&mut self, addr: &IonicAddr) -> Result<(), VMExecutionError> {
+        self.state.accounts.delete(addr.as_ref()).unwrap();
+        Ok(())
+    }
+
+    pub fn sload(&self, addr: &IonicAddr, key: &IonicHash) -> Result<&u256, VMExecutionError> {
         let account = self.account(addr)?;
         Ok(account
             .storage
@@ -129,7 +155,7 @@ impl Blockchain {
         addr: &IonicAddr,
         key: IonicHash,
         value: u256,
-    ) -> Result<(), TransactionError> {
+    ) -> Result<(), VMExecutionError> {
         let account = self.account_mut(addr)?;
         account
             .storage
