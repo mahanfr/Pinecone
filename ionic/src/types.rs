@@ -139,6 +139,12 @@ impl AsRef<[u8]> for IonicHash {
     }
 }
 
+impl IonicHash {
+    pub fn as_key(&self) -> [u8; 32] {
+        self.hash
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct IonicAddr {
     addr: [u8; 32],
@@ -216,6 +222,10 @@ impl IonicAddr {
         Self {
             addr: blake3::hash(&bytes).as_bytes().to_owned(),
         }
+    }
+
+    pub fn as_key(&self) -> [u8; 32] {
+        self.addr
     }
 }
 pub type IonicTXSignature = [u8; 64];

@@ -92,9 +92,9 @@ mod tests {
     #[test]
     pub fn encode_decode() {
         let mut storage = SparseMerkleTrie::new();
-        storage.insert(&key(1), 0.as_u256()).unwrap();
-        storage.insert(&key(2), 1.as_u256()).unwrap();
-        storage.insert(&key(3), 2.as_u256()).unwrap();
+        storage.insert(&key(1), 0.as_u256());
+        storage.insert(&key(2), 1.as_u256());
+        storage.insert(&key(3), 2.as_u256());
         let account = Account {
             nonce: 55,
             balance: 500,

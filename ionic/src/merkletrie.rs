@@ -4,7 +4,6 @@ use crate::{
     serialization::{CodecError, read_slice, read_uvarint, write_uvarint},
     types::IonicHash,
     utils::{FromBytes, ToBytes},
-    verkletrie::TrieError,
 };
 
 const KEY_LEN: usize = 32;
@@ -44,20 +43,16 @@ impl<T: Clone + ToBytes> SparseMerkleTrie<T> {
         }
     }
 
-    pub fn insert(&mut self, key: &[u8], value: T) -> Result<(), TrieError> {
-        ensure_key(key)?;
+    pub fn insert(&mut self, key: &[u8; 32], value: T) {
         self.root.insert(key, 0, value);
-        Ok(())
     }
 
-    pub fn get(&self, key: &[u8]) -> Result<Option<&T>, TrieError> {
-        ensure_key(key)?;
-        Ok(self.root.get(key, 0))
+    pub fn get(&self, key: &[u8; 32]) -> Option<&T> {
+        self.root.get(key, 0)
     }
 
-    pub fn delete(&mut self, key: &[u8]) -> Result<bool, TrieError> {
-        ensure_key(key)?;
-        Ok(self.root.delete(key, 0))
+    pub fn delete(&mut self, key: &[u8; 32]) -> bool {
+        self.root.delete(key, 0)
     }
 
     pub fn root_hash(&mut self) -> IonicHash {
@@ -126,7 +121,7 @@ enum MerkleNode<T: ToBytes + Clone> {
 }
 
 impl<T: Clone + ToBytes> MerkleNode<T> {
-    pub fn insert(&mut self, key: &[u8], depth: usize, value: T) {
+    pub fn insert(&mut self, key: &[u8; 32], depth: usize, value: T) {
         if depth == KEY_LEN {
             let hash = leaf_hash(key, &value.to_bytes());
             *self = MerkleNode::Leaf(MerkleNodeLeaf { hash, value });
@@ -156,7 +151,7 @@ impl<T: Clone + ToBytes> MerkleNode<T> {
         }
     }
 
-    pub fn get(&self, key: &[u8], depth: usize) -> Option<&T> {
+    pub fn get(&self, key: &[u8; 32], depth: usize) -> Option<&T> {
         if depth == KEY_LEN {
             return match self {
                 Self::Leaf(leaf) => Some(&leaf.value),
@@ -172,7 +167,7 @@ impl<T: Clone + ToBytes> MerkleNode<T> {
         }
     }
 
-    pub fn delete(&mut self, key: &[u8], depth: usize) -> bool {
+    pub fn delete(&mut self, key: &[u8; 32], depth: usize) -> bool {
         if depth == KEY_LEN {
             if matches!(self, MerkleNode::Leaf(_)) {
                 *self = MerkleNode::Empty;
@@ -294,7 +289,7 @@ impl<T: Clone + ToBytes + FromBytes> MerkleNode<T> {
                 let value_bytes = read_slice(bytes, cursor, value_len)?;
                 let value =
                     T::from_bytes(value_bytes).map_err(|e| CodecError::Value(e.to_string()))?;
-                let hash = leaf_hash(&key[..], value_bytes);
+                let hash = leaf_hash(&key, value_bytes);
                 Ok(Self::Leaf(MerkleNodeLeaf { value, hash }))
             }
             TAG_BRANCH => {
@@ -321,21 +316,11 @@ impl<T: Clone + ToBytes + FromBytes> MerkleNode<T> {
     }
 }
 
-fn ensure_key(key: &[u8]) -> Result<(), TrieError> {
-    if key.len() != KEY_LEN {
-        return Err(TrieError::InvalidKeyLength {
-            expected: KEY_LEN,
-            actual: key.len(),
-        });
-    }
-    Ok(())
-}
-
 fn empty_children<T: ToBytes + Clone>() -> Vec<Option<Box<MerkleNode<T>>>> {
     (0..ARITY).map(|_| None).collect()
 }
 
-fn leaf_hash(key: &[u8], value: &[u8]) -> IonicHash {
+fn leaf_hash(key: &[u8; 32], value: &[u8]) -> IonicHash {
     let mut bytes = Vec::new();
     bytes.extend_from_slice(MERKLE_LEAF_DOMAIN);
     bytes.extend_from_slice(key);
@@ -360,39 +345,39 @@ mod tests {
     #[test]
     fn insert_and_get() {
         let mut trie = SparseMerkleTrie::new();
-        trie.insert(&key(1), 100).unwrap();
-        trie.insert(&key(2), 420).unwrap();
+        trie.insert(&key(1), 100);
+        trie.insert(&key(2), 420);
 
-        assert_eq!(trie.get(&key(1)), Ok(Some(&100)));
-        assert_eq!(trie.get(&key(2)), Ok(Some(&420)));
+        assert_eq!(trie.get(&key(1)), Some(&100));
+        assert_eq!(trie.get(&key(2)), Some(&420));
     }
 
     #[test]
     fn delete_item() {
         let mut trie = SparseMerkleTrie::new();
-        trie.insert(&key(1), 100).unwrap();
-        trie.insert(&key(2), 420).unwrap();
-        assert!(trie.delete(&key(1)).unwrap());
-        assert_eq!(trie.get(&key(2)), Ok(Some(&420)));
-        assert!(!trie.delete(&key(1)).unwrap());
+        trie.insert(&key(1), 100);
+        trie.insert(&key(2), 420);
+        assert!(trie.delete(&key(1)));
+        assert_eq!(trie.get(&key(2)), Some(&420));
+        assert!(!trie.delete(&key(1)));
     }
 
     #[test]
     fn update_changes_value() {
         let mut trie = SparseMerkleTrie::new();
-        trie.insert(&key(1), 100).unwrap();
+        trie.insert(&key(1), 100);
 
         let root1 = trie.root_hash();
-        trie.insert(&key(1), 200).unwrap();
+        trie.insert(&key(1), 200);
         let root2 = trie.root_hash();
         assert_ne!(root1, root2);
-        assert_eq!(trie.get(&key(1)).unwrap(), Some(&200));
+        assert_eq!(trie.get(&key(1)), Some(&200));
     }
 
     #[test]
     fn root_hash_is_cached_until_dirty() {
         let mut trie = SparseMerkleTrie::new();
-        trie.insert(&key(1), 100).unwrap();
+        trie.insert(&key(1), 100);
         let root1 = trie.root_hash();
         let root2 = trie.root_hash();
         assert_eq!(root1, root2);
@@ -401,12 +386,12 @@ mod tests {
     #[test]
     fn root_hash_independent_of_insertion_order() {
         let mut trie_a = SparseMerkleTrie::new();
-        trie_a.insert(&key(1), 100).unwrap();
-        trie_a.insert(&key(2), 200).unwrap();
+        trie_a.insert(&key(1), 100);
+        trie_a.insert(&key(2), 200);
 
         let mut trie_b = SparseMerkleTrie::new();
-        trie_b.insert(&key(2), 200).unwrap();
-        trie_b.insert(&key(1), 100).unwrap();
+        trie_b.insert(&key(2), 200);
+        trie_b.insert(&key(1), 100);
 
         assert_eq!(trie_a.root_hash(), trie_b.root_hash());
     }
@@ -414,24 +399,24 @@ mod tests {
     #[test]
     fn serialization_round_trips_and_hash_matches() {
         let mut trie = SparseMerkleTrie::new();
-        trie.insert(&key(1), 100).unwrap();
-        trie.insert(&key(2), 420).unwrap();
-        trie.insert(&key(250), 7).unwrap();
+        trie.insert(&key(1), 100);
+        trie.insert(&key(2), 420);
+        trie.insert(&key(250), 7);
         let root_before = trie.root_hash();
 
         let bytes = trie.to_bytes();
         let mut restored = SparseMerkleTrie::<u32>::from_bytes(&bytes).unwrap();
 
-        assert_eq!(restored.get(&key(1)).unwrap(), Some(&100));
-        assert_eq!(restored.get(&key(2)).unwrap(), Some(&420));
-        assert_eq!(restored.get(&key(250)).unwrap(), Some(&7));
+        assert_eq!(restored.get(&key(1)), Some(&100));
+        assert_eq!(restored.get(&key(2)), Some(&420));
+        assert_eq!(restored.get(&key(250)), Some(&7));
         assert_eq!(restored.root_hash(), root_before);
     }
 
     #[test]
     fn serialization_rejects_trailing_bytes() {
         let mut trie = SparseMerkleTrie::new();
-        trie.insert(&key(1), 100).unwrap();
+        trie.insert(&key(1), 100);
         let mut bytes = trie.to_bytes();
         bytes.push(0xff);
         assert!(SparseMerkleTrie::<u32>::from_bytes(&bytes).is_err());

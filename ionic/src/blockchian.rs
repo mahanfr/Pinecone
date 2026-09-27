@@ -43,7 +43,7 @@ impl Blockchain {
             code: Vec::new(),
             storage: SparseMerkleTrie::new(),
         };
-        self.state.add_account(addr, account.clone()).unwrap();
+        self.state.add_account(addr, account.clone());
         self.cache.insert(addr, account);
     }
 
@@ -136,17 +136,15 @@ impl Blockchain {
         Ok(())
     }
 
-    pub fn selfdestruct(&mut self, addr: &IonicAddr) -> Result<(), VMExecutionError> {
-        self.state.accounts.delete(addr.as_ref()).unwrap();
-        Ok(())
+    pub fn selfdestruct(&mut self, addr: &IonicAddr) -> bool {
+        self.state.accounts.delete(&addr.as_key())
     }
 
     pub fn sload(&self, addr: &IonicAddr, key: &IonicHash) -> Result<&u256, VMExecutionError> {
         let account = self.account(addr)?;
         Ok(account
             .storage
-            .get(key.as_ref())
-            .expect("key type can should not cause an error")
+            .get(&key.as_key())
             .unwrap_or_else(|| &u256::ZERO))
     }
 
@@ -157,10 +155,7 @@ impl Blockchain {
         value: u256,
     ) -> Result<(), VMExecutionError> {
         let account = self.account_mut(addr)?;
-        account
-            .storage
-            .insert(key.as_ref(), value)
-            .expect("key type should not cause an error");
+        account.storage.insert(&key.as_key(), value);
         Ok(())
     }
 }

@@ -5,7 +5,7 @@ use crate::{
     merkletrie::SparseMerkleTrie,
     transactions::{Transaction, TransactionError},
     types::IonicAddr,
-    verkletrie::{SparseVerkleTrie, TrieError},
+    verkletrie::SparseVerkleTrie,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,9 +36,8 @@ impl IonicState {
         }
     }
 
-    pub fn add_account(&mut self, addr: IonicAddr, account: Account) -> Result<(), TrieError> {
-        self.accounts.insert(addr.as_ref(), account)?;
-        Ok(())
+    pub fn add_account(&mut self, addr: IonicAddr, account: Account) {
+        self.accounts.insert(&addr.as_key(), account);
     }
 
     pub fn validate_transaction(&self, tx: &Transaction) -> Result<(), TransactionError> {
@@ -55,23 +54,17 @@ impl IonicState {
     }
 
     pub fn get_mut_account(&mut self, addr: &IonicAddr) -> Result<&mut Account, TransactionError> {
-        let account = match self.accounts.get_mut(addr.as_ref()) {
-            Ok(op_ac) => match op_ac {
-                Some(ac) => ac,
-                None => return Err(TransactionError::InvalidAccount),
-            },
-            Err(_) => return Err(TransactionError::InvalidAccount),
+        let account = match self.accounts.get_mut(&addr.as_key()) {
+            Some(ac) => ac,
+            None => return Err(TransactionError::InvalidAccount),
         };
         Ok(account)
     }
 
     pub fn get_account(&self, addr: &IonicAddr) -> Result<&Account, TransactionError> {
-        let account = match self.accounts.get(addr.as_ref()) {
-            Ok(op_ac) => match op_ac {
-                Some(ac) => ac,
-                None => return Err(TransactionError::InvalidAccount),
-            },
-            Err(_) => return Err(TransactionError::InvalidAccount),
+        let account = match self.accounts.get(&addr.as_key()) {
+            Some(ac) => ac,
+            None => return Err(TransactionError::InvalidAccount),
         };
         Ok(account)
     }
@@ -103,7 +96,7 @@ impl IonicState {
         };
         // Apply
         // TODO: Verkletrie should have a buffer qeueue that then applies the changes.
-        self.accounts.insert(sender_addr.as_ref(), account).unwrap();
+        self.accounts.insert(&sender_addr.as_key(), account);
         Ok(TxExecutionResult {
             status: TxExecutionStatus::Success,
             validation_tip,

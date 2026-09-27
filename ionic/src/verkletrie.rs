@@ -1,5 +1,3 @@
-use std::fmt;
-
 use ark_bls12_381::{Fr, G1Projective};
 use ark_ec::PrimeGroup;
 use ark_ff::Zero;
@@ -31,22 +29,17 @@ impl<T: Clone + ToBytes> SparseVerkleTrie<T> {
             root: VerkleNode::Branch(VerkleNodeBranch::new_empty()),
         }
     }
-    pub fn insert(&mut self, key: &[u8], value: T) -> Result<(), TrieError> {
-        ensure_key(key)?;
+    pub fn insert(&mut self, key: &[u8; 32], value: T) {
         self.root.insert(key, 0, value);
-        Ok(())
     }
-    pub fn get(&self, key: &[u8]) -> Result<Option<&T>, TrieError> {
-        ensure_key(key)?;
-        Ok(self.root.get(key, 0))
+    pub fn get(&self, key: &[u8; 32]) -> Option<&T> {
+        self.root.get(key, 0)
     }
-    pub fn get_mut(&mut self, key: &[u8]) -> Result<Option<&mut T>, TrieError> {
-        ensure_key(key)?;
-        Ok(self.root.get_mut(key, 0))
+    pub fn get_mut(&mut self, key: &[u8; 32]) -> Option<&mut T> {
+        self.root.get_mut(key, 0)
     }
-    pub fn delete(&mut self, key: &[u8]) -> Result<bool, TrieError> {
-        ensure_key(key)?;
-        Ok(self.root.delete(key, 0))
+    pub fn delete(&mut self, key: &[u8; 32]) -> bool {
+        self.root.delete(key, 0)
     }
     fn root_commitment(&mut self) -> G1Projective {
         self.root.commit(&self.kzg)
@@ -59,11 +52,10 @@ impl<T: Clone + ToBytes> SparseVerkleTrie<T> {
             .expect("G1 serialize failed");
         out
     }
-    pub fn prove(&mut self, key: &[u8]) -> Result<VerkleProof, TrieError> {
-        ensure_key(key)?;
+    pub fn prove(&mut self, key: &[u8; 32]) -> Option<VerkleProof> {
         self.root.prove(&self.kzg, key, 0)
     }
-    pub fn verify_proof(&self, root: G1Projective, key: &[u8], proof: &VerkleProof) -> bool {
+    pub fn verify_proof(&self, root: G1Projective, key: &[u8; 32], proof: &VerkleProof) -> bool {
         if key.len() != KEY_LEN {
             return false;
         }
@@ -144,7 +136,7 @@ enum VerkleNode<T: ToBytes + Clone> {
 }
 
 impl<T: Clone + ToBytes> VerkleNode<T> {
-    pub fn insert(&mut self, key: &[u8], depth: usize, value: T) {
+    pub fn insert(&mut self, key: &[u8; 32], depth: usize, value: T) {
         if depth == KEY_LEN {
             let commitment = leaf_commitment(key, &value.to_bytes());
             *self = VerkleNode::Leaf(VerkleNodeLeaf { commitment, value });
@@ -173,7 +165,7 @@ impl<T: Clone + ToBytes> VerkleNode<T> {
         }
     }
 
-    pub fn get_mut(&mut self, key: &[u8], depth: usize) -> Option<&mut T> {
+    pub fn get_mut(&mut self, key: &[u8; 32], depth: usize) -> Option<&mut T> {
         if depth == KEY_LEN {
             return match self {
                 Self::Leaf(leaf) => Some(&mut leaf.value),
@@ -189,7 +181,7 @@ impl<T: Clone + ToBytes> VerkleNode<T> {
         }
     }
 
-    pub fn get(&self, key: &[u8], depth: usize) -> Option<&T> {
+    pub fn get(&self, key: &[u8; 32], depth: usize) -> Option<&T> {
         if depth == KEY_LEN {
             return match self {
                 Self::Leaf(leaf) => Some(&leaf.value),
@@ -205,7 +197,7 @@ impl<T: Clone + ToBytes> VerkleNode<T> {
         }
     }
 
-    pub fn delete(&mut self, key: &[u8], depth: usize) -> bool {
+    pub fn delete(&mut self, key: &[u8; 32], depth: usize) -> bool {
         if depth == KEY_LEN {
             if matches!(self, VerkleNode::Leaf(_)) {
                 *self = VerkleNode::Empty;
@@ -273,17 +265,14 @@ impl<T: Clone + ToBytes> VerkleNode<T> {
         }
     }
 
-    fn prove(&mut self, kzg: &KZG, key: &[u8], depth: usize) -> Result<VerkleProof, TrieError> {
+    fn prove(&mut self, kzg: &KZG, key: &[u8; 32], depth: usize) -> Option<VerkleProof> {
         match self {
-            Self::Empty => Err(TrieError::InvalidKeyLength {
-                expected: KEY_LEN,
-                actual: key.len(),
-            }),
+            Self::Empty => None,
             Self::Leaf(vnl) => {
                 if depth != KEY_LEN {
                     panic!("leaf encounterd before depth 32");
                 }
-                Ok(VerkleProof {
+                Some(VerkleProof {
                     key: key.to_vec(),
                     value: Some(vnl.value.to_bytes()),
                     levels: Vec::new(),
@@ -319,13 +308,13 @@ impl<T: Clone + ToBytes> VerkleNode<T> {
                         let mut levels = Vec::with_capacity(child_proof.levels.len() + 1);
                         levels.push(level);
                         levels.extend(child_proof.levels);
-                        Ok(VerkleProof {
+                        Some(VerkleProof {
                             key: key.to_vec(),
                             value: child_proof.value,
                             levels,
                         })
                     }
-                    None => Ok(VerkleProof {
+                    None => Some(VerkleProof {
                         key: key.to_vec(),
                         value: None,
                         levels: vec![level],
@@ -349,42 +338,11 @@ pub struct VerkleProofLevel {
     pub kzg_proof: G1Projective,
 }
 
-#[derive(Debug, PartialEq)]
-pub enum TrieError {
-    InvalidKeyLength { expected: usize, actual: usize },
-}
-
-impl fmt::Display for TrieError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            TrieError::InvalidKeyLength { expected, actual } => {
-                write!(
-                    f,
-                    "invalid key length: expected {}, got {}",
-                    expected, actual
-                )
-            }
-        }
-    }
-}
-
-impl std::error::Error for TrieError {}
-
-fn ensure_key(key: &[u8]) -> Result<(), TrieError> {
-    if key.len() != KEY_LEN {
-        return Err(TrieError::InvalidKeyLength {
-            expected: KEY_LEN,
-            actual: key.len(),
-        });
-    }
-    Ok(())
-}
-
 fn empty_children<T: ToBytes + Clone>() -> Vec<Option<Box<VerkleNode<T>>>> {
     (0..ARITY).map(|_| None).collect()
 }
 
-fn leaf_commitment(key: &[u8], value: &[u8]) -> G1Projective {
+fn leaf_commitment(key: &[u8; 32], value: &[u8]) -> G1Projective {
     let mut data = Vec::new();
     data.extend_from_slice(VERKLE_LEAF_DOMAIN);
     data.extend_from_slice(key);
@@ -406,40 +364,40 @@ mod tests {
     #[test]
     fn insert_and_get() {
         let mut trie = SparseVerkleTrie::new();
-        trie.insert(&key(1), 100).unwrap();
-        trie.insert(&key(2), 420).unwrap();
+        trie.insert(&key(1), 100);
+        trie.insert(&key(2), 420);
 
-        assert_eq!(trie.get(&key(1)), Ok(Some(&100)));
-        assert_eq!(trie.get(&key(2)), Ok(Some(&420)));
+        assert_eq!(trie.get(&key(1)), Some(&100));
+        assert_eq!(trie.get(&key(2)), Some(&420));
     }
 
     #[test]
     fn delete_item() {
         let mut trie = SparseVerkleTrie::new();
-        trie.insert(&key(1), 100).unwrap();
-        trie.insert(&key(2), 420).unwrap();
-        assert!(trie.delete(&key(1)).unwrap());
-        assert_eq!(trie.get(&key(2)), Ok(Some(&420)));
-        assert!(!trie.delete(&key(1)).unwrap());
+        trie.insert(&key(1), 100);
+        trie.insert(&key(2), 420);
+        assert!(trie.delete(&key(1)));
+        assert_eq!(trie.get(&key(2)), Some(&420));
+        assert!(!trie.delete(&key(1)));
     }
 
     #[test]
     fn update_changes_value() {
         let mut trie = SparseVerkleTrie::new();
-        trie.insert(&key(1), 100).unwrap();
+        trie.insert(&key(1), 100);
 
         let root1 = trie.root_bytes();
-        trie.insert(&key(1), 200).unwrap();
+        trie.insert(&key(1), 200);
         let root2 = trie.root_bytes();
         assert_ne!(root1, root2);
-        assert_eq!(trie.get(&key(1)).unwrap(), Some(&200));
+        assert_eq!(trie.get(&key(1)), Some(&200));
     }
 
     #[test]
     fn proof_and_validate() {
         let mut trie = SparseVerkleTrie::new();
-        trie.insert(&key(1), 100).unwrap();
-        trie.insert(&key(2), 200).unwrap();
+        trie.insert(&key(1), 100);
+        trie.insert(&key(2), 200);
         let root = trie.root_commitment();
         let proof = trie.prove(&key(1)).unwrap();
         assert!(trie.verify_proof(root, &key(1), &proof));

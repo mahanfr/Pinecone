@@ -826,7 +826,7 @@ impl VirtualMachine {
             blockchain.transfer(&self.ctx.address, &beneficiary, bal)?;
         }
 
-        blockchain.selfdestruct(&self.ctx.address)?;
+        blockchain.selfdestruct(&self.ctx.address);
         self.stopped = true;
         Ok(())
     }
