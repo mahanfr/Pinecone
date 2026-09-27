@@ -1,6 +1,7 @@
 use std::{error::Error, fmt::Display};
 
 use ed25519_dalek::SigningKey;
+use ethnum::{AsU256, u256};
 use ionic::{
     accounts::Account,
     transactions::Transaction,
@@ -33,7 +34,7 @@ impl Wallet {
         self.account = Some(account);
     }
 
-    pub fn create_tx(&self, value: u128, recepient: IonicAddr) -> Result<Transaction, WalletError> {
+    pub fn create_tx(&self, value: u256, recepient: IonicAddr) -> Result<Transaction, WalletError> {
         let Some(account) = &self.account else {
             return Err(WalletError::AccountInfoNotExists);
         };
@@ -45,7 +46,7 @@ impl Wallet {
             Some(recepient),
             value,
         )
-        .with_fees(gas_limit, 2000, 1000)
+        .with_fees(gas_limit, 2000.as_u256(), 1000.as_u256())
         .sign(&self.secret_key)
         .build();
         Ok(transaction)

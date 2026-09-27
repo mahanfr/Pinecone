@@ -1,6 +1,7 @@
 use std::{error::Error, fmt::Display};
 
 use ed25519_dalek::{Signature, Signer, Verifier, VerifyingKey};
+use ethnum::u256;
 use log::{error, warn};
 
 use crate::{
@@ -25,8 +26,8 @@ impl TransactionBuilder {
     pub fn with_fees(
         &mut self,
         gas_limit: u64,
-        max_fee: u128,
-        max_priority_fee: u128,
+        max_fee: u256,
+        max_priority_fee: u256,
     ) -> &mut Self {
         self.tx.gas_limit = gas_limit;
         self.tx.max_fee = max_fee;
@@ -62,10 +63,10 @@ pub struct Transaction {
     pub sender_pk: IonicPK,
     pub recepient: Option<IonicAddr>,
 
-    pub value: u128,
+    pub value: u256,
     pub gas_limit: u64,
-    pub max_fee: u128,
-    pub max_priority_fee: u128,
+    pub max_fee: u256,
+    pub max_priority_fee: u256,
     pub timestamp: u64,
 
     pub data: Vec<u8>,
@@ -82,10 +83,10 @@ impl Default for Transaction {
             sender_pk: IonicPK::default(),
             recepient: None,
             timestamp: current_timestamp(),
-            value: 0,
+            value: u256::ZERO,
             gas_limit: 0,
-            max_fee: 0,
-            max_priority_fee: 0,
+            max_fee: u256::ZERO,
+            max_priority_fee: u256::ZERO,
             data: Vec::new(),
             signature: [0u8; 64],
         }
@@ -98,7 +99,7 @@ impl Transaction {
         nonce: u64,
         sender_pk: IonicPK,
         recepient: Option<IonicAddr>,
-        value: u128,
+        value: u256,
     ) -> TransactionBuilder {
         TransactionBuilder {
             signed: false,
@@ -186,7 +187,7 @@ impl Transaction {
         IonicAddr::from_pk(&self.sender_pk)
     }
 
-    pub fn priority_fee(&self, base_fee: u128) -> Result<u128, TransactionError> {
+    pub fn priority_fee(&self, base_fee: u256) -> Result<u256, TransactionError> {
         if self.max_fee < base_fee {
             return Err(TransactionError::MaxFeeTooSmall);
         }
@@ -196,7 +197,7 @@ impl Transaction {
         ))
     }
 
-    pub fn gas_price(&self, base_fee: u128) -> Result<u128, TransactionError> {
+    pub fn gas_price(&self, base_fee: u256) -> Result<u256, TransactionError> {
         let tip = self.priority_fee(base_fee)?;
         Ok(base_fee + tip)
     }
@@ -307,15 +308,17 @@ impl Error for TransactionError {}
 
 #[cfg(test)]
 mod tests {
-    use crate::{keygen::generate_key_pair, transactions::Transaction};
+    use ethnum::{AsU256, u256};
+
+use crate::{keygen::generate_key_pair, transactions::Transaction};
 
     #[test]
     pub fn sign_and_verify_transaction() {
         // Generate Public/Private key
         let (privk, pubk) = generate_key_pair();
 
-        let transaction = Transaction::new_builder(0, 0, pubk.into(), None, 0)
-            .with_fees(100, 2000, 1000)
+        let transaction = Transaction::new_builder(0, 0, pubk.into(), None, u256::ZERO)
+            .with_fees(100, 2000.as_u256(), 1000.as_u256())
             .sign(&privk)
             .build();
         assert!(transaction.verify_signature())

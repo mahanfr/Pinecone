@@ -5,6 +5,8 @@ use std::{
     sync::{Arc, PoisonError, RwLock},
 };
 
+use ethnum::u256;
+
 use crate::{
     blockchian::Blockchain,
     blocks::Block,
@@ -16,7 +18,7 @@ use crate::{
 pub const MEMPOOL_MAX_CAPACITY: usize = u16::MAX as usize;
 pub const MEMPOOL_EVICTION_TIMEOUT: u64 = 3600;
 
-type PriorityIndex = (u128, u64, IonicHash);
+type PriorityIndex = (u256, u64, IonicHash);
 
 #[derive(Debug)]
 pub enum QueueType {
@@ -224,7 +226,7 @@ impl Mempool {
         Ok(())
     }
 
-    async fn rebuild_priority_index(queues: &mut MempoolQueues, base_fee: u128) {
+    async fn rebuild_priority_index(queues: &mut MempoolQueues, base_fee: u256) {
         let mut new_priority_index = BTreeSet::<PriorityIndex>::new();
         let mut new_backlog_index = BTreeSet::<PriorityIndex>::new();
         let mut to_remove = Vec::new();
@@ -309,7 +311,7 @@ impl Mempool {
         queue_type: QueueType,
         tx: &Transaction,
         key: IonicHash,
-        base_fee: u128,
+        base_fee: u256,
     ) -> Result<(), MempoolError> {
         let gas_price = tx.gas_price(base_fee)?;
         let priority_key = (gas_price, tx.timestamp, key);
@@ -348,7 +350,7 @@ impl Mempool {
         queues: &mut MempoolQueues,
         sender: &IonicAddr,
         account_nonce: u64,
-        base_fee: u128,
+        base_fee: u256,
     ) -> Result<(), MempoolError> {
         let nonce_map = match queues.by_sender.get(sender) {
             Some(map) => map.clone(),
@@ -396,14 +398,14 @@ impl Mempool {
     async fn evict_low_priority(
         queues: &mut MempoolQueues,
         tx: &Transaction,
-        base_fee: u128,
+        base_fee: u256,
     ) -> Result<(), MempoolError> {
         let current_time = current_timestamp();
         let expected_price = tx.gas_price(base_fee)?;
 
         let mut removed_items = Vec::new();
         // Evict the tx(s) with only the lowest price and all the timedout ones
-        let mut last_evicted_price = 0;
+        let mut last_evicted_price = u256::ZERO;
         for (price, time, key) in queues.backlog_index.iter() {
             if price < &expected_price && (&last_evicted_price < price) {
                 removed_items.push(key.clone());
@@ -413,7 +415,7 @@ impl Mempool {
             }
         }
         if removed_items.is_empty() {
-            last_evicted_price = 0;
+            last_evicted_price = u256::ZERO;
             for (price, time, key) in queues.priority_index.iter() {
                 if price < &expected_price && (&last_evicted_price < price) {
                     removed_items.push(key.clone());
@@ -495,25 +497,26 @@ mod tests {
     use super::*;
 
     mod test_support {
+        use ethnum::AsU256;
         use super::*;
         use crate::keygen::generate_key_pair;
 
-        pub fn tx(nonce: u64, max_fee: u128) -> Transaction {
+        pub fn tx(nonce: u64, max_fee: u256) -> Transaction {
             let (sk, pk) = generate_key_pair();
-            Transaction::new_builder(0, nonce, pk.into(), None, 100)
+            Transaction::new_builder(0, nonce, pk.into(), None, 100.as_u256())
                 .with_fees(10000, max_fee, max_fee + 100)
                 .sign(&sk)
                 .build()
         }
 
-        pub fn tx_old_timestamp(nonce: u64, max_fee: u128) -> Transaction {
+        pub fn tx_old_timestamp(nonce: u64, max_fee: u256) -> Transaction {
             let (sk, pk) = generate_key_pair();
             let mut tx = Transaction {
                 chain_id: 0,
                 nonce,
                 sender_pk: pk.into(),
                 recepient: None,
-                value: 100,
+                value: 100.as_u256(),
                 gas_limit: 10000,
                 max_fee,
                 max_priority_fee: max_fee + 100,
@@ -524,11 +527,12 @@ mod tests {
             tx
         }
     }
+    use ethnum::AsU256;
     use test_support::*;
 
     #[tokio::test]
     async fn rebuild_priority_index_drops_tx_that_errors_under_new_base_fee() {
-        let max_fee: u128 = 100;
+        let max_fee: u256 = 100.as_u256();
         let t = Arc::new(tx(0, max_fee));
         let sender = t.sender();
         let key = t.hash();
@@ -542,7 +546,7 @@ mod tests {
             index_lookup: HashMap::new(),
         };
 
-        let low_base_fee: u128 = 10;
+        let low_base_fee: u256 = 10.as_u256();
         let price = t
             .gas_price(low_base_fee)
             .expect("should price fine at low base fee");
@@ -556,7 +560,7 @@ mod tests {
         queues.priority_index.insert(pkey);
         queues.index_lookup.insert(key, (pkey, QueueType::Pending));
 
-        let high_base_fee: u128 = max_fee + 1;
+        let high_base_fee: u256 = max_fee + 1;
         assert!(
             t.gas_price(high_base_fee).is_err(),
             "test setup assumption violated"
@@ -581,9 +585,9 @@ mod tests {
 
     #[tokio::test]
     async fn evict_low_priority_misses_timed_out_high_price_entries() {
-        let cheap = tx(0, 5);
-        let stale = tx_old_timestamp(0, 50);
-        let incoming = tx(0, 20);
+        let cheap = tx(0, 5.as_u256());
+        let stale = tx_old_timestamp(0, 50.as_u256());
+        let incoming = tx(0, 20.as_u256());
         let sender_cheap = cheap.sender();
         let sender_stale = stale.sender();
         let sender_new = incoming.sender();
@@ -591,12 +595,12 @@ mod tests {
         let mempool = Mempool::with_capacity(6);
 
         let mut blockchain = Blockchain::new(0);
-        blockchain.new_account(sender_cheap, 1_000_000, 0);
-        blockchain.new_account(sender_stale, 1_000_000, 0);
-        blockchain.new_account(sender_new, 1_000_000, 0);
+        blockchain.new_account(sender_cheap, 1_000_000.as_u256(), 0);
+        blockchain.new_account(sender_stale, 1_000_000.as_u256(), 0);
+        blockchain.new_account(sender_new, 1_000_000.as_u256(), 0);
         for _ in 0..4 {
-            let tx = tx(0, 30);
-            blockchain.new_account(tx.sender(), 1_000_000, 0);
+            let tx = tx(0, 30.as_u256());
+            blockchain.new_account(tx.sender(), 1_000_000.as_u256(), 0);
             mempool.submit_transaction(&tx, &blockchain).await.unwrap();
         }
         mempool

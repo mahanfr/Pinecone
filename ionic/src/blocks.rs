@@ -1,4 +1,5 @@
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use ethnum::{AsU256, u256};
 use log::{error, warn};
 
 use crate::{
@@ -40,7 +41,7 @@ impl Block {
             state_root,
             gas_limit: 0,
             gas_used: 0,
-            base_fee: 0,
+            base_fee: u256::ZERO,
         };
 
         Self {
@@ -130,7 +131,7 @@ impl Block {
         blake3::hash(&data).into()
     }
 
-    pub fn next_base_fee(&self) -> u128 {
+    pub fn next_base_fee(&self) -> u256 {
         let last_block_header = self.header;
         let current_base_fee = last_block_header.base_fee;
         let gas_target = last_block_header.gas_limit / 2;
@@ -139,10 +140,10 @@ impl Block {
         }
         // base_fee(N) * (gas_used(N) - gas_target(N)) / (gas_target(N) * 8)
         let inflaition =
-            current_base_fee * ((last_block_header.gas_used - gas_target) / gas_target * 8) as u128;
+            current_base_fee * ((last_block_header.gas_used - gas_target) / gas_target * 8).as_u256();
         let base_fee = current_base_fee + inflaition;
         if base_fee < 1 {
-            return 1;
+            return u256::ONE;
         }
         base_fee
     }
@@ -165,7 +166,7 @@ pub struct BlockHeader {
     pub state_root: IonicHash,
     pub gas_limit: u64,
     pub gas_used: u64,
-    pub base_fee: u128,
+    pub base_fee: u256,
     // pub previous_rando // used for smart contract random opcode
 }
 

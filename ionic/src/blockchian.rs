@@ -36,7 +36,7 @@ impl Blockchain {
     }
 
     // NOTE: This is for testing remove for production
-    pub fn new_account(&mut self, addr: IonicAddr, balance: u128, nonce: u64) {
+    pub fn new_account(&mut self, addr: IonicAddr, balance: u256, nonce: u64) {
         let account = Account {
             balance,
             nonce,
@@ -76,7 +76,7 @@ impl Blockchain {
             IonicHash::default(),
             transactions,
         );
-        block.header.base_fee = 1;
+        block.header.base_fee = u256::ONE;
         block
     }
 
@@ -93,7 +93,7 @@ impl Blockchain {
         None
     }
 
-    pub fn base_fee(&self) -> u128 {
+    pub fn base_fee(&self) -> u256 {
         match self.head() {
             Some(head) => head.next_base_fee(),
             None => Self::genesis(self.id).next_base_fee(),
@@ -108,7 +108,7 @@ impl Blockchain {
         self.state.get_mut_account(addr).map_err(|e| e.into())
     }
 
-    pub fn balance(&self, addr: &IonicAddr) -> Result<u128, VMExecutionError> {
+    pub fn balance(&self, addr: &IonicAddr) -> Result<u256, VMExecutionError> {
         Ok(self.state.get_account(addr)?.balance)
     }
 
@@ -129,7 +129,7 @@ impl Blockchain {
         &mut self,
         sender: &IonicAddr,
         new_addr: &IonicAddr,
-        value: u128,
+        value: u256,
     ) -> Result<(), VMExecutionError> {
         self.account_mut(sender)?.balance -= value;
         self.account_mut(new_addr)?.balance += value;

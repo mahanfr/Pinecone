@@ -12,7 +12,7 @@ const ACCOUNT_DOMAIN: &[u8] = b"IONIC_ACCOUNT_V1";
 #[derive(Debug, Clone, PartialEq)]
 pub struct Account {
     pub nonce: u64,
-    pub balance: u128,
+    pub balance: u256,
     pub storage: SparseMerkleTrie<u256>,
     pub code: Vec<u8>,
 }
@@ -27,7 +27,7 @@ impl Account {
     pub fn new() -> Self {
         Self {
             nonce: 0,
-            balance: 0,
+            balance: u256::ZERO,
             storage: SparseMerkleTrie::new(),
             code: Vec::new(),
         }
@@ -56,8 +56,8 @@ impl FromBytes for Account {
 
         let nonce_slice: &[u8; 8] = read_bytes!(bytes, w, 8).try_into().unwrap();
         let nonce = u64::from_le_bytes(*nonce_slice);
-        let balance_slice: &[u8; 16] = read_bytes!(bytes, w, 16).try_into().unwrap();
-        let balance = u128::from_le_bytes(*balance_slice);
+        let balance_slice: &[u8; 32] = read_bytes!(bytes, w, 32).try_into().unwrap();
+        let balance = u256::from_le_bytes(*balance_slice);
 
         let code_size_slice: &[u8; 8] = read_bytes!(bytes, w, 8).try_into().unwrap();
         let code_size = u64::from_le_bytes(*code_size_slice) as usize;
@@ -97,7 +97,7 @@ mod tests {
         storage.insert(&key(3), 2.as_u256());
         let account = Account {
             nonce: 55,
-            balance: 500,
+            balance: 500.as_u256(),
             code: vec![1, 2, 3],
             storage,
         };

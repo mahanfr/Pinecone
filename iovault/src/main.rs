@@ -1,6 +1,7 @@
 mod wallet;
 
 use clap::{Parser, Subcommand};
+use ethnum::{AsU256, u256};
 use ionic::{
     accounts::Account, keygen::generate_key_pair, merkletrie::SparseMerkleTrie, types::IonicAddr,
 };
@@ -27,7 +28,7 @@ pub enum WalletCommands {
         to: String,
 
         #[arg(short, long)]
-        amount: u128,
+        amount: u256,
     },
     Balance,
 }
@@ -38,7 +39,7 @@ fn main() {
     let mut wallet = Wallet::new(sk, pk.into(), 0);
     let account = Account {
         nonce: 0,
-        balance: 1_000_000_000,
+        balance: 1_000_000_000.as_u256(),
         code: Vec::new(),
         storage: SparseMerkleTrie::new(),
     };

@@ -44,7 +44,7 @@ impl VirtualMachine {
         Self::default()
     }
 
-    fn new_child(&self, new_addr: IonicAddr, value: u128) -> Self {
+    fn new_child(&self, new_addr: IonicAddr, value: u256) -> Self {
         let sender = self.ctx.address;
         let ctx = ExecutionContext {
             address: new_addr,
@@ -669,7 +669,7 @@ impl VirtualMachine {
         let call_frame = CallFrame {
             gas: gas.as_u64(),
             recepient: to,
-            value: value.as_u128(),
+            value,
             in_offset,
             in_size,
             out_offset,
@@ -677,7 +677,7 @@ impl VirtualMachine {
             code_addr: to,
             ctx_addr: to,
             caller: self.ctx.address,
-            call_value: value.as_u128(),
+            call_value: value,
             is_static: false,
             transfer_value: true,
         };
@@ -700,7 +700,7 @@ impl VirtualMachine {
         let call_frame = CallFrame {
             gas: gas.as_u64(),
             recepient: to,
-            value: value.as_u128(),
+            value,
             in_offset,
             in_size,
             out_offset,
@@ -708,7 +708,7 @@ impl VirtualMachine {
             code_addr: to,
             ctx_addr: self.ctx.address,
             caller: self.ctx.address,
-            call_value: value.as_u128(),
+            call_value: value,
             is_static: false,
             transfer_value: false,
         };
@@ -736,7 +736,7 @@ impl VirtualMachine {
         let call_frame = CallFrame {
             gas: gas.as_u64(),
             recepient: to,
-            value: 0,
+            value: u256::ZERO,
             in_offset,
             in_size,
             out_offset,
@@ -744,7 +744,7 @@ impl VirtualMachine {
             code_addr: to,
             ctx_addr: to,
             caller: self.ctx.address,
-            call_value: 0,
+            call_value: u256::ZERO,
             is_static: true,
             transfer_value: false,
         };
@@ -789,7 +789,7 @@ impl VirtualMachine {
         let call_frame = CallFrame {
             gas: gas.as_u64(),
             recepient: to,
-            value: 0,
+            value: u256::ZERO,
             in_offset,
             in_size,
             out_offset,
@@ -797,7 +797,7 @@ impl VirtualMachine {
             code_addr: to,
             ctx_addr: to,
             caller: self.ctx.address,
-            call_value: 0,
+            call_value: u256::ZERO,
             is_static: true,
             transfer_value: false,
         };
@@ -928,7 +928,6 @@ impl VirtualMachine {
             return Ok(());
         }
 
-        let value = value.as_u128();
         let sender = self.ctx.address;
 
         if blockchain.balance(&sender.into()).unwrap_or_default() < value {
