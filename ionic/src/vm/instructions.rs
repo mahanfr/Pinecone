@@ -97,9 +97,9 @@ impl Display for IonicInstr {
     }
 }
 
-impl Into<IonicOpcode> for IonicInstr {
-    fn into(self) -> IonicOpcode {
-        self.opcode
+impl From<IonicInstr> for IonicOpcode {
+    fn from(val: IonicInstr) -> Self {
+        val.opcode
     }
 }
 

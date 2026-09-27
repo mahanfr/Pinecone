@@ -85,12 +85,7 @@ impl Blockchain {
     }
 
     pub fn get_block(&self, index: u64) -> Option<&Block> {
-        for block in self.chain.iter() {
-            if block.header.index == index {
-                return Some(block);
-            }
-        }
-        None
+        self.chain.iter().find(|&block| block.header.index == index).map(|v| v as _)
     }
 
     pub fn base_fee(&self) -> u256 {
@@ -145,7 +140,7 @@ impl Blockchain {
         Ok(account
             .storage
             .get(&key.as_key())
-            .unwrap_or_else(|| &u256::ZERO))
+            .unwrap_or(&u256::ZERO))
     }
 
     pub fn sstore(

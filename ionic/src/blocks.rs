@@ -51,33 +51,11 @@ impl Block {
         }
     }
 
-    pub fn new_signed(
-        sk: &SigningKey,
-        index: u64,
-        position: BlockPos,
-        chain_id: u64,
-        previous_hash: IonicHash,
-        proposer: IonicPK,
-        state_root: IonicHash,
-        transactions: Vec<Transaction>,
-    ) -> Self {
-        let mut block = Self::new_unsigned(
-            index,
-            position,
-            chain_id,
-            previous_hash,
-            proposer,
-            state_root,
-            transactions,
-        );
-        block.sign(sk);
-        block
-    }
-
-    pub fn sign(&mut self, sk: &SigningKey) {
+    pub fn sign(&mut self, sk: &SigningKey) -> &mut Self {
         let hash = self.header.hash();
         let signature = sk.sign(&hash.to_bytes());
         self.signature = signature.to_bytes();
+        self
     }
 
     fn validate_signature(&self) -> bool {
@@ -93,7 +71,7 @@ impl Block {
             }
         };
         let hash = self.header.hash();
-        pk.verify(&hash.as_ref(), &Signature::from_bytes(&self.signature))
+        pk.verify(hash.as_ref(), &Signature::from_bytes(&self.signature))
             .is_ok()
     }
 
@@ -126,7 +104,7 @@ impl Block {
         assert_ne!(self.signature, [0u8; 64]);
         let mut data = Vec::new();
         data.extend_from_slice(BLOCK_DOMAIN);
-        data.extend_from_slice(&self.header.hash().as_ref());
+        data.extend_from_slice(self.header.hash().as_ref());
         data.extend_from_slice(&self.signature);
         blake3::hash(&data).into()
     }
@@ -178,11 +156,11 @@ impl BlockHeader {
         bytes.extend_from_slice(&self.chain_id.to_le_bytes());
         bytes.extend_from_slice(&self.index.to_le_bytes());
         bytes.extend_from_slice(&self.position.to_bytes());
-        bytes.extend_from_slice(&self.previous_hash.as_ref());
+        bytes.extend_from_slice(self.previous_hash.as_ref());
         bytes.extend_from_slice(&self.timestamp.to_le_bytes());
-        bytes.extend_from_slice(&self.proposer.as_ref());
-        bytes.extend_from_slice(&self.transactions_root.as_ref());
-        bytes.extend_from_slice(&self.state_root.as_ref());
+        bytes.extend_from_slice(self.proposer.as_ref());
+        bytes.extend_from_slice(self.transactions_root.as_ref());
+        bytes.extend_from_slice(self.state_root.as_ref());
         bytes.extend_from_slice(&self.gas_limit.to_le_bytes());
         bytes.extend_from_slice(&self.gas_used.to_le_bytes());
         bytes.extend_from_slice(&self.base_fee.to_le_bytes());

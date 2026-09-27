@@ -289,7 +289,7 @@ impl<T: Clone + ToBytes + FromBytes> MerkleNode<T> {
                 let value_bytes = read_slice(bytes, cursor, value_len)?;
                 let value =
                     T::from_bytes(value_bytes).map_err(|e| CodecError::Value(e.to_string()))?;
-                let hash = leaf_hash(&key, value_bytes);
+                let hash = leaf_hash(key, value_bytes);
                 Ok(Self::Leaf(MerkleNodeLeaf { value, hash }))
             }
             TAG_BRANCH => {

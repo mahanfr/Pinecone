@@ -79,7 +79,7 @@ impl VirtualMachine {
         let mut instrs: Vec<IonicInstr> = Vec::new();
         let mut cur = 0;
         while cur < code.len() {
-            let instr = IonicInstr::parse(&code, &mut cur)?;
+            let instr = IonicInstr::parse(code, &mut cur)?;
             instrs.push(instr);
         }
         Ok(instrs)
@@ -152,7 +152,7 @@ impl VirtualMachine {
                     self.gas_used += 2100;
                     self.balance(addr.into(), blockchain)?
                 }
-                SELFBALANCE => self.balance(self.ctx.address.into(), blockchain)?,
+                SELFBALANCE => self.balance(self.ctx.address, blockchain)?,
                 BASEFEE => {
                     self.stack.push(blockchain.base_fee().as_u256());
                 }
@@ -486,7 +486,7 @@ impl VirtualMachine {
         addr: IonicAddr,
         blockchian: &Blockchain,
     ) -> Result<(), VMExecutionError> {
-        let balance = blockchian.balance(&addr.into()).unwrap_or_default();
+        let balance = blockchian.balance(&addr).unwrap_or_default();
         self.stack.push(balance.as_u256());
         Ok(())
     }
@@ -633,7 +633,7 @@ impl VirtualMachine {
         let Some(val) = self.stack.pop() else {
             return Err(VMExecutionError::EmptyStack(self.pc, self.get_instr()));
         };
-        return Ok(val);
+        Ok(val)
     }
 
     fn log(&mut self, num_topics: u8) -> Result<(), VMExecutionError> {
@@ -819,7 +819,7 @@ impl VirtualMachine {
 
         let beneficiary: IonicAddr = self.pop_internal()?.into();
         let bal = blockchain
-            .balance(&self.ctx.address.into())
+            .balance(&self.ctx.address)
             .unwrap_or_default();
 
         if bal > 0 {
@@ -849,7 +849,7 @@ impl VirtualMachine {
 
         if value > 0 {
             if blockchain
-                .balance(&self.ctx.address.into())
+                .balance(&self.ctx.address)
                 .unwrap_or_default()
                 < value
             {
@@ -874,7 +874,7 @@ impl VirtualMachine {
             address: frame.ctx_addr,
             origin: self.ctx.origin,
             caller: frame.caller,
-            call_value: call_value,
+            call_value,
             gas_price: self.ctx.gas_price,
             nonce: self.ctx.nonce,
             calldata: input,
@@ -882,7 +882,7 @@ impl VirtualMachine {
             return_data: Vec::new(),
             is_static: frame.is_static,
         };
-        let mut child = Self::new_child_with_ctx(&self, ctx);
+        let mut child = Self::new_child_with_ctx(self, ctx);
         child.load(&code)?;
         let run_result = child.run(block, blockchain);
         self.gas_used += child.gas_used;
@@ -930,7 +930,7 @@ impl VirtualMachine {
 
         let sender = self.ctx.address;
 
-        if blockchain.balance(&sender.into()).unwrap_or_default() < value {
+        if blockchain.balance(&sender).unwrap_or_default() < value {
             self.stack.push(u256::ZERO);
             return Ok(());
         }
@@ -953,7 +953,7 @@ impl VirtualMachine {
             blockchain.transfer(&sender, &new_addr, value)?;
         }
 
-        let mut child = Self::new_child(&self, new_addr, value);
+        let mut child = Self::new_child(self, new_addr, value);
         child.load(&init_code)?;
 
         let run_result = child.run(block, blockchain);

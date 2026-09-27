@@ -25,7 +25,7 @@ impl IonicMemory {
         let mut slice = Vec::new();
         let arr = &data[data_offset..data_offset + len];
         slice.extend_from_slice(arr);
-        let padded_len = (len + 31) / 32;
+        let padded_len = len.div_ceil(32);
         slice.resize(padded_len, 0);
         self.expand_memory_if_needed(offset, len);
         self.data[offset..offset + padded_len].copy_from_slice(&slice);
@@ -37,8 +37,7 @@ impl IonicMemory {
             return u256::ZERO;
         }
         let data: [u8; 32] = self.data[offset..offset + 32].try_into().unwrap();
-        let imm = u256::from_le_bytes(data);
-        return imm;
+        u256::from_le_bytes(data)
     }
 
     pub fn mload8(&mut self, offset: u256, len: u256) -> Vec<u8> {
@@ -70,9 +69,7 @@ impl IonicMemory {
 
         self.expand_memory_if_needed(new_offset, len);
         let data = self.data[offset..offset + len].to_vec();
-        for i in 0..len {
-            self.data[new_offset + i] = data[i];
-        }
+        self.data[new_offset..(len + new_offset)].copy_from_slice(&data[..len]);
     }
 
     pub fn mcmp(&mut self, offset1: u256, len1: u256, offset2: u256, len2: u256) -> bool {
@@ -100,7 +97,7 @@ impl IonicMemory {
             return;
         }
 
-        let new_size = ((end + 31) / 32) * 32;
+        let new_size = end.div_ceil(32) * 32;
         self.data.resize(new_size, 0);
     }
 

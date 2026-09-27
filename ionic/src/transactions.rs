@@ -117,7 +117,7 @@ impl Transaction {
 
     pub fn sign(&mut self, sec_key: &ed25519_dalek::SigningKey) {
         let hash = self.hash_unsigned();
-        let signature = sec_key.sign(&hash.as_ref());
+        let signature = sec_key.sign(hash.as_ref());
         self.signature = signature.to_bytes();
     }
 
@@ -135,7 +135,7 @@ impl Transaction {
         };
         let hash = self.hash_unsigned();
         public_key
-            .verify(&hash.as_ref(), &Signature::from_bytes(&self.signature))
+            .verify(hash.as_ref(), &Signature::from_bytes(&self.signature))
             .is_ok()
     }
 
@@ -144,13 +144,13 @@ impl Transaction {
         bytes.push(self.version);
         bytes.extend_from_slice(&self.chain_id.to_le_bytes());
         bytes.extend_from_slice(&self.nonce.to_le_bytes());
-        bytes.extend_from_slice(&self.sender_pk.as_ref());
+        bytes.extend_from_slice(self.sender_pk.as_ref());
 
         // encoding Option
         match self.recepient {
             Some(addr) => {
                 bytes.push(1u8);
-                bytes.extend_from_slice(&addr.as_ref());
+                bytes.extend_from_slice(addr.as_ref());
             }
             None => {
                 bytes.push(0u8);
@@ -249,7 +249,7 @@ pub fn transactions_root(transactions: &[Transaction]) -> IonicHash {
             let mut data = Vec::new();
             data.extend_from_slice(MERKLE_TREE_DOMAIN);
             data.extend_from_slice(left.as_ref());
-            data.extend_from_slice(&right.as_ref());
+            data.extend_from_slice(right.as_ref());
 
             next.push(blake3::hash(&data).into());
         }

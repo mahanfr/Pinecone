@@ -72,17 +72,17 @@ impl Mempool {
 
     pub fn contains(&self, tx_hash: &IonicHash) -> bool {
         if let Ok(queues) = self.queues.read() {
-            return queues.index_lookup.contains_key(tx_hash);
+            queues.index_lookup.contains_key(tx_hash)
         } else {
-            return false;
+            false
         }
     }
 
     pub fn pending_len(&self) -> usize {
         if let Ok(queues) = self.queues.read() {
-            return queues.pending.len();
+            queues.pending.len()
         } else {
-            return 0;
+            0
         }
     }
 
@@ -107,12 +107,11 @@ impl Mempool {
         let account = blockchain.state.get_account(&tx.sender())?;
         let tx_arc = Arc::new(tx.clone());
         // if tx with same sender and nonce exists in the queues remove it first
-        if let Some(nonce_map) = queues.by_sender.get(&tx.sender()) {
-            if let Some(hash) = nonce_map.get(&tx.nonce) {
-                let hash_clone = hash.clone();
+        if let Some(nonce_map) = queues.by_sender.get(&tx.sender())
+            && let Some(hash) = nonce_map.get(&tx.nonce) {
+                let hash_clone = *hash;
                 let _ = Self::remove_tx(&mut queues, hash_clone).await;
             }
-        }
 
         if account.nonce == tx.nonce {
             Self::submit_to_pending(&mut queues, key, tx_arc)?;
@@ -155,11 +154,10 @@ impl Mempool {
             let mut prev_nonce: u64 = u64::MAX;
             let mut temp_added = Vec::new();
             for (nonce, inner_key) in sender_nonce_map.iter() {
-                if prev_nonce != u64::MAX {
-                    if prev_nonce + 1 != *nonce {
+                if prev_nonce != u64::MAX
+                    && prev_nonce + 1 != *nonce {
                         break;
                     }
-                }
                 prev_nonce = *nonce;
                 if already_added.contains(inner_key) {
                     continue;
@@ -167,7 +165,7 @@ impl Mempool {
                 if !queues.pending.contains_key(inner_key) {
                     break;
                 }
-                if transactions.len() + temp_added.len() + 1 <= max {
+                if transactions.len() + temp_added.len() < max {
                     temp_added.push(*inner_key);
                     already_added.insert(*inner_key);
                 } else {
@@ -285,9 +283,9 @@ impl Mempool {
             if let Some(nonce_map) = queues.by_sender.get_mut(&tx.sender()) {
                 nonce_map.remove(&tx.nonce);
             }
-            return Ok(tx);
+            Ok(tx)
         } else {
-            return Err(MempoolError::TransactionNotExists);
+            Err(MempoolError::TransactionNotExists)
         }
     }
 
@@ -300,7 +298,7 @@ impl Mempool {
         queues
             .by_sender
             .entry(tx.sender())
-            .or_insert_with(BTreeMap::new)
+            .or_default()
             .insert(tx.nonce, key);
 
         Ok(())
@@ -332,7 +330,7 @@ impl Mempool {
         queues
             .by_sender
             .entry(tx.sender())
-            .or_insert_with(BTreeMap::new)
+            .or_default()
             .insert(tx.nonce, key);
 
         Ok(())
@@ -408,20 +406,20 @@ impl Mempool {
         let mut last_evicted_price = u256::ZERO;
         for (price, time, key) in queues.backlog_index.iter() {
             if price < &expected_price && (&last_evicted_price < price) {
-                removed_items.push(key.clone());
+                removed_items.push(*key);
                 last_evicted_price = *price;
             } else if current_time - time > MEMPOOL_EVICTION_TIMEOUT {
-                removed_items.push(key.clone());
+                removed_items.push(*key);
             }
         }
         if removed_items.is_empty() {
             last_evicted_price = u256::ZERO;
             for (price, time, key) in queues.priority_index.iter() {
                 if price < &expected_price && (&last_evicted_price < price) {
-                    removed_items.push(key.clone());
+                    removed_items.push(*key);
                     last_evicted_price = *price;
                 } else if current_time - time > MEMPOOL_EVICTION_TIMEOUT {
-                    removed_items.push(key.clone());
+                    removed_items.push(*key);
                 }
             }
         }

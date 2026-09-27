@@ -9,6 +9,7 @@ use crate::utils::ToBytes;
 const IONIC_ADDR_DOMAIN: &[u8] = b"IONIC_ADDR";
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Default)]
 pub struct IonicPK {
     pk: [u8; 32],
 }
@@ -25,15 +26,10 @@ impl Debug for IonicPK {
     }
 }
 
-impl Default for IonicPK {
-    fn default() -> Self {
-        Self { pk: [0u8; 32] }
-    }
-}
 
-impl Into<[u8; 32]> for IonicPK {
-    fn into(self) -> [u8; 32] {
-        self.pk
+impl From<IonicPK> for [u8; 32] {
+    fn from(val: IonicPK) -> Self {
+        val.pk
     }
 }
 
@@ -71,6 +67,7 @@ impl AsRef<[u8]> for IonicPK {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default)]
 pub struct IonicHash {
     hash: [u8; 32],
 }
@@ -87,21 +84,16 @@ impl Debug for IonicHash {
     }
 }
 
-impl Default for IonicHash {
-    fn default() -> Self {
-        Self { hash: [0u8; 32] }
+
+impl From<IonicHash> for [u8; 32] {
+    fn from(val: IonicHash) -> Self {
+        val.hash
     }
 }
 
-impl Into<[u8; 32]> for IonicHash {
-    fn into(self) -> [u8; 32] {
-        self.hash
-    }
-}
-
-impl Into<u256> for IonicHash {
-    fn into(self) -> u256 {
-        u256::from_le_bytes(self.hash)
+impl From<IonicHash> for u256 {
+    fn from(val: IonicHash) -> Self {
+        u256::from_le_bytes(val.hash)
     }
 }
 
@@ -146,25 +138,21 @@ impl IonicHash {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default)]
 pub struct IonicAddr {
     addr: [u8; 32],
 }
 
-impl Default for IonicAddr {
-    fn default() -> Self {
-        Self { addr: [0u8; 32] }
+
+impl From<IonicAddr> for [u8; 32] {
+    fn from(val: IonicAddr) -> Self {
+        val.addr
     }
 }
 
-impl Into<[u8; 32]> for IonicAddr {
-    fn into(self) -> [u8; 32] {
-        self.addr
-    }
-}
-
-impl Into<u256> for IonicAddr {
-    fn into(self) -> u256 {
-        u256::from_le_bytes(self.addr)
+impl From<IonicAddr> for u256 {
+    fn from(val: IonicAddr) -> Self {
+        u256::from_le_bytes(val.addr)
     }
 }
 
