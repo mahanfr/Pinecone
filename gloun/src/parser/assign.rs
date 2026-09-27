@@ -100,10 +100,10 @@ pub fn assign(ast: &mut BlockTree, current: BlockId, lexer: &mut Lexer) -> Stmt 
         if let ExprType::Variable(ident) = left_expr.etype {
             let var_decl = raw_variable_declare(lexer, ident);
             ast.set_variable(current, var_decl.clone());
-            return Stmt {
+            Stmt {
                 stype: StmtType::VariableDecl(var_decl),
                 loc,
-            };
+            }
         } else {
             error(
                 format!("Expected variable found ({})", lexer.get_token_type()),
@@ -115,14 +115,14 @@ pub fn assign(ast: &mut BlockTree, current: BlockId, lexer: &mut Lexer) -> Stmt 
         lexer.match_token(token_type);
         let right_expr = expr(lexer);
         lexer.match_token(TokenType::SemiColon);
-        return Stmt {
+        Stmt {
             stype: StmtType::Assign(Assign {
                 left: left_expr,
                 right: right_expr,
                 op: op_type,
             }),
             loc,
-        };
+        }
     } else {
         error(
             format!("Expected Semicolon found ({})", lexer.get_token_type()),

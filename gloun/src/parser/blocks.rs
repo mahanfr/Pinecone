@@ -154,7 +154,7 @@ impl Block {
     /// Parse Blocks
     /// # Argumenrs
     /// * lexer - address of mutable lexer
-    ///     Returns a vec of stmts
+    ///   Returns a vec of stmts
     pub fn parse_block(ast: &mut BlockTree, current: BlockId, lexer: &mut Lexer) {
         lexer.match_token(TokenType::OCurly);
         loop {

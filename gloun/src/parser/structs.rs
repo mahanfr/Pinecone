@@ -42,7 +42,7 @@ impl StructType {
         for item in self.items.values() {
             size += item.vtype.size();
         }
-        size as usize
+        size
     }
 }
 

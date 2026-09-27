@@ -75,10 +75,7 @@ impl VariableType {
     }
 
     pub fn is_predifined_type(t: &str) -> bool {
-        match t {
-            "Map" | "List" => true,
-            _ => false,
-        }
+        matches!(t, "Map" | "List")
     }
 
     /// checks if type is any
