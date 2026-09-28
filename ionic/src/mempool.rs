@@ -108,10 +108,11 @@ impl Mempool {
         let tx_arc = Arc::new(tx.clone());
         // if tx with same sender and nonce exists in the queues remove it first
         if let Some(nonce_map) = queues.by_sender.get(&tx.sender())
-            && let Some(hash) = nonce_map.get(&tx.nonce) {
-                let hash_clone = *hash;
-                let _ = Self::remove_tx(&mut queues, hash_clone).await;
-            }
+            && let Some(hash) = nonce_map.get(&tx.nonce)
+        {
+            let hash_clone = *hash;
+            let _ = Self::remove_tx(&mut queues, hash_clone).await;
+        }
 
         if account.nonce == tx.nonce {
             Self::submit_to_pending(&mut queues, key, tx_arc)?;
@@ -154,10 +155,9 @@ impl Mempool {
             let mut prev_nonce: u64 = u64::MAX;
             let mut temp_added = Vec::new();
             for (nonce, inner_key) in sender_nonce_map.iter() {
-                if prev_nonce != u64::MAX
-                    && prev_nonce + 1 != *nonce {
-                        break;
-                    }
+                if prev_nonce != u64::MAX && prev_nonce + 1 != *nonce {
+                    break;
+                }
                 prev_nonce = *nonce;
                 if already_added.contains(inner_key) {
                     continue;
@@ -495,9 +495,9 @@ mod tests {
     use super::*;
 
     mod test_support {
-        use ethnum::AsU256;
         use super::*;
         use crate::keygen::generate_key_pair;
+        use ethnum::AsU256;
 
         pub fn tx(nonce: u64, max_fee: u256) -> Transaction {
             let (sk, pk) = generate_key_pair();

@@ -10,12 +10,13 @@ use ethnum::{AsU256, u256};
 use crate::{
     blockchian::Blockchain,
     blocks::{Block, BlockHeader},
+    journal::{Journal, Snapshot},
     transactions::TransactionError,
     types::{IonicAddr, IonicHash},
     utils::ToBytes,
     vm::{
-        callframe::CallFrame, instructions::IonicInstr, logs::IonicLog,
-        memory::IonicMemory, opcodes::IonicOpcode,
+        callframe::CallFrame, instructions::IonicInstr, logs::IonicLog, memory::IonicMemory,
+        opcodes::IonicOpcode,
     },
 };
 
@@ -28,6 +29,7 @@ pub struct VirtualMachine {
     pub call_depth: u32,
     pub gas_used: u64,
     pub logs: Vec<IonicLog>,
+    pub journal: Journal,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -40,6 +42,7 @@ pub struct VMInstance {
     pub reverted: bool,
     pub return_value: Vec<u8>,
     pub instructions: Vec<IonicInstr>,
+    pub state_snapshot: Snapshot,
 
     pub address: IonicAddr,
     pub origin: IonicAddr,
@@ -54,7 +57,9 @@ pub struct VMInstance {
 }
 
 impl VirtualMachine {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     pub fn eval(
         blockchain: &mut Blockchain,
@@ -78,6 +83,7 @@ impl VirtualMachine {
             instructions: Self::parse(&code_bytes)?,
             calldata: code_bytes.clone(),
             code: code_bytes,
+            state_snapshot: blockchain.journal.record(),
             ..Default::default()
         };
         vm.block = block.header.clone();
@@ -172,7 +178,8 @@ impl VirtualMachine {
                     let ost = instance.pop_stack()?;
                     let destost = instance.pop_stack()?;
                     let cost = instance.memory.expantion_cost(destost, len);
-                    instance.memory
+                    instance
+                        .memory
                         .write_padded(destost, len, ost, &instance.calldata);
                     instance.gas_used += cost;
                 }
@@ -182,13 +189,15 @@ impl VirtualMachine {
                     let ost = instance.pop_stack()?;
                     let destost = instance.pop_stack()?;
                     let cost = instance.memory.expantion_cost(destost, len);
-                    instance.memory.write_padded(destost, len, ost, &instance.code);
+                    instance
+                        .memory
+                        .write_padded(destost, len, ost, &instance.code);
                     instance.gas_used += cost;
                 }
                 EXTCODESIZE => {
                     let addr = instance.pop_stack()?;
                     instance.gas_used += 2100;
-                    let code = blockchain.code(&addr.into()).unwrap_or_default();
+                    let code = blockchain.get_code(&addr.into()).unwrap_or_default();
                     instance.stack.push(code.len().as_u256());
                 }
                 EXTCODECOPY => {
@@ -197,7 +206,7 @@ impl VirtualMachine {
                     let destost = instance.pop_stack()?;
                     let addr = instance.pop_stack()?;
                     instance.gas_used += 2100;
-                    let code = blockchain.code(&addr.into()).unwrap_or_default();
+                    let code = blockchain.get_code(&addr.into()).unwrap_or_default();
                     let cost = instance.memory.expantion_cost(destost, len);
                     instance.memory.write_padded(destost, len, ost, &code);
                     instance.gas_used += cost;
@@ -205,7 +214,7 @@ impl VirtualMachine {
                 EXTCODEHASH => {
                     let addr = instance.pop_stack()?;
                     instance.gas_used += 2100;
-                    let code = blockchain.code(&addr.into()).unwrap_or_default();
+                    let code = blockchain.get_code(&addr.into()).unwrap_or_default();
                     let hash: IonicHash = blake3::hash(&code).into();
                     instance.stack.push(hash.into());
                 }
@@ -217,7 +226,8 @@ impl VirtualMachine {
                     let ost = instance.pop_stack()?;
                     let destost = instance.pop_stack()?;
                     let cost = instance.memory.expantion_cost(destost, len);
-                    instance.memory
+                    instance
+                        .memory
                         .write_padded(destost, len, ost, &instance.return_data);
                     instance.gas_used += cost;
                 }
@@ -271,10 +281,13 @@ impl VirtualMachine {
                 MCOPY => instance.mcpy()?,
                 TSTORE => self.tstore(instance)?,
                 TLOAD => self.tload(instance)?,
-                SSTORE => instance.sstore(blockchain)?,
-                SLOAD => instance.sload(blockchain)?,
+                SSTORE => self.sstore(instance, blockchain)?,
+                SLOAD => self.sload(instance, blockchain)?,
                 LOG0 | LOG1 | LOG2 | LOG3 | LOG4 => {
-                    self.log(instance, instr.opcode.log_topics().expect("Not a Log instruction"))?;
+                    self.log(
+                        instance,
+                        instr.opcode.log_topics().expect("Not a Log instruction"),
+                    )?;
                 }
                 CREATE => self.create(instance, blockchain)?,
                 CALL => self.call(instance, blockchain)?,
@@ -321,6 +334,25 @@ impl VirtualMachine {
         Ok(())
     }
 
+    fn sload(&mut self, instance: &mut VMInstance, blockchian: &Blockchain) -> Result<(), VMExecutionError> {
+        let key = instance.pop_stack()?;
+        let value = blockchian
+            .sload(&instance.address, &key.to_owned().into())
+            .unwrap_or(&u256::ZERO);
+        instance.stack.push(*value);
+        Ok(())
+    }
+
+    fn sstore(&mut self, instance: &mut VMInstance, blockchain: &mut Blockchain) -> Result<(), VMExecutionError> {
+        if instance.is_static {
+            return Err(VMExecutionError::StaticViolation(instance.get_instr()));
+        }
+        let value = instance.pop_stack()?;
+        let key = instance.pop_stack()?;
+        blockchain.sstore(&instance.address, key.into(), value);
+        Ok(())
+    }
+
     fn log(&mut self, instance: &mut VMInstance, num_topics: u8) -> Result<(), VMExecutionError> {
         if instance.is_static {
             return Err(VMExecutionError::StaticViolation(instance.get_instr()));
@@ -342,7 +374,11 @@ impl VirtualMachine {
         Ok(())
     }
 
-    fn call(&mut self, instance: &mut VMInstance, blockchain: &mut Blockchain) -> Result<(), VMExecutionError> {
+    fn call(
+        &mut self,
+        instance: &mut VMInstance,
+        blockchain: &mut Blockchain,
+    ) -> Result<(), VMExecutionError> {
         let out_size = instance.pop_stack()?;
         let out_offset = instance.pop_stack()?;
         let in_size = instance.pop_stack()?;
@@ -497,18 +533,22 @@ impl VirtualMachine {
         instance.stopped = true;
         Ok(())
     }
-    fn selfdestruct(&mut self,instance: &mut VMInstance, blockchain: &mut Blockchain) -> Result<(), VMExecutionError> {
+    fn selfdestruct(
+        &mut self,
+        instance: &mut VMInstance,
+        blockchain: &mut Blockchain,
+    ) -> Result<(), VMExecutionError> {
         if instance.is_static {
             return Err(VMExecutionError::StaticViolation(instance.get_instr()));
         }
 
         let beneficiary: IonicAddr = instance.pop_stack()?.into();
-        let bal = blockchain
-            .balance(&instance.address)
-            .unwrap_or_default();
+        let bal = blockchain.get_balance(&instance.address).unwrap_or_default();
 
         if bal > 0 {
-            blockchain.transfer(&instance.address, &beneficiary, bal)?;
+            if !blockchain.transfer(&instance.address, &beneficiary, bal) {
+                return Err(VMExecutionError::UnknownAccount);
+            }
         }
 
         blockchain.selfdestruct(&instance.address);
@@ -533,11 +573,7 @@ impl VirtualMachine {
         let call_value = frame.call_value;
 
         if value > 0 {
-            if blockchain
-                .balance(&instance.address)
-                .unwrap_or_default()
-                < value
-            {
+            if blockchain.get_balance(&instance.address).unwrap_or_default() < value {
                 instance.stack.push(u256::ZERO);
                 return Ok(());
             }
@@ -546,7 +582,7 @@ impl VirtualMachine {
             }
         }
 
-        let code = blockchain.code(&frame.code_addr).unwrap_or_default();
+        let code = blockchain.get_code(&frame.code_addr).unwrap_or_default();
 
         if code.is_empty() {
             instance.stack.push(u256::ONE);
@@ -566,6 +602,7 @@ impl VirtualMachine {
             calldata: input,
             code: code,
             is_static: frame.is_static,
+            state_snapshot: blockchain.journal.record(),
             ..Default::default()
         };
 
@@ -581,10 +618,11 @@ impl VirtualMachine {
                     &child_instance.return_value,
                 );
                 instance.stack.push(u256::ONE);
+                blockchain.apply();
             }
             _ => {
+                blockchain.revert(child_instance.state_snapshot);
                 if frame.transfer_value && value > 0 {
-                    let _ = blockchain.transfer(&frame.recepient, &instance.address, value);
                     instance.stack.push(u256::ZERO);
                 }
             }
@@ -611,7 +649,7 @@ impl VirtualMachine {
 
         let sender = instance.address;
 
-        if blockchain.balance(&sender).unwrap_or_default() < value {
+        if blockchain.get_balance(&sender).unwrap_or_default() < value {
             instance.stack.push(u256::ZERO);
             return Ok(());
         }
@@ -630,7 +668,9 @@ impl VirtualMachine {
         };
 
         if value > 0 {
-            blockchain.transfer(&sender, &new_addr, value)?;
+            if !blockchain.transfer(&sender, &new_addr, value) {
+                return Err(VMExecutionError::UnknownAccount);
+            }
         }
 
         let mut child_instance = VMInstance {
@@ -643,6 +683,7 @@ impl VirtualMachine {
             is_static: false,
             instructions: Self::parse(&init_code)?,
             code: init_code,
+            state_snapshot: blockchain.journal.record(),
             ..Default::default()
         };
         let run_result = self.run(&mut child_instance, blockchain);
@@ -650,13 +691,12 @@ impl VirtualMachine {
 
         match run_result {
             Ok(()) if !child_instance.reverted => {
-                blockchain.set_code(&new_addr, child_instance.return_value.clone())?;
+                blockchain.set_code(&new_addr, child_instance.return_value.clone());
                 instance.stack.push(new_addr.into());
+                blockchain.apply();
             }
             _ => {
-                if value > 0 {
-                    let _ = blockchain.transfer(&new_addr, &sender, value);
-                }
+                blockchain.revert(child_instance.state_snapshot);
                 instance.return_data = child_instance.return_value.clone();
                 instance.stack.push(u256::ZERO);
             }
@@ -672,7 +712,6 @@ impl VirtualMachine {
         let h = blake3::hash(&buf).as_bytes().to_owned();
         h.into()
     }
-
 }
 impl VMInstance {
     fn pop_stack(&mut self) -> Result<u256, VMExecutionError> {
@@ -842,7 +881,7 @@ impl VMInstance {
         addr: IonicAddr,
         blockchian: &Blockchain,
     ) -> Result<(), VMExecutionError> {
-        let balance = blockchian.balance(&addr).unwrap_or_default();
+        let balance = blockchian.get_balance(&addr).unwrap_or_default();
         self.stack.push(balance.as_u256());
         Ok(())
     }
@@ -865,25 +904,6 @@ impl VMInstance {
             return Err(VMExecutionError::InvalidJumpDest(dest));
         }
         self.pc = dest;
-        Ok(())
-    }
-
-    fn sload(&mut self, blockchian: &Blockchain) -> Result<(), VMExecutionError> {
-        let key = self.pop_stack()?;
-        let value = blockchian
-            .sload(&self.address, &key.to_owned().into())
-            .unwrap_or(&u256::ZERO);
-        self.stack.push(*value);
-        Ok(())
-    }
-
-    fn sstore(&mut self, blockchain: &mut Blockchain) -> Result<(), VMExecutionError> {
-        if self.is_static {
-            return Err(VMExecutionError::StaticViolation(self.get_instr()));
-        }
-        let value = self.pop_stack()?;
-        let key = self.pop_stack()?;
-        let _ = blockchain.sstore(&self.address, key.into(), value);
         Ok(())
     }
 

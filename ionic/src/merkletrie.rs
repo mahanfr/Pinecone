@@ -43,16 +43,16 @@ impl<T: Clone + ToBytes> SparseMerkleTrie<T> {
         }
     }
 
-    pub fn insert(&mut self, key: &[u8; 32], value: T) {
-        self.root.insert(key, 0, value);
+    pub fn insert(&mut self, key: &[u8; 32], value: T) -> Option<T> {
+        self.root.insert(key, 0, value)
     }
 
     pub fn get(&self, key: &[u8; 32]) -> Option<&T> {
         self.root.get(key, 0)
     }
 
-    pub fn delete(&mut self, key: &[u8; 32]) -> bool {
-        self.root.delete(key, 0)
+    pub fn delete(&mut self, key: &[u8; 32]) -> Option<T> {
+        self.root.delete(key, 0).0
     }
 
     pub fn root_hash(&mut self) -> IonicHash {
@@ -121,11 +121,15 @@ enum MerkleNode<T: ToBytes + Clone> {
 }
 
 impl<T: Clone + ToBytes> MerkleNode<T> {
-    pub fn insert(&mut self, key: &[u8; 32], depth: usize, value: T) {
+    pub fn insert(&mut self, key: &[u8; 32], depth: usize, value: T) -> Option<T> {
         if depth == KEY_LEN {
             let hash = leaf_hash(key, &value.to_bytes());
+            let prev = match self {
+                Self::Empty | Self::Branch(_) => None,
+                Self::Leaf(l) => Some(l.value.clone())
+            };
             *self = MerkleNode::Leaf(MerkleNodeLeaf { hash, value });
-            return;
+            return prev;
         }
         match self {
             Self::Empty => {
@@ -149,6 +153,7 @@ impl<T: Clone + ToBytes> MerkleNode<T> {
                     .insert(key, depth + 1, value);
             }
         }
+        None
     }
 
     pub fn get(&self, key: &[u8; 32], depth: usize) -> Option<&T> {
@@ -167,35 +172,38 @@ impl<T: Clone + ToBytes> MerkleNode<T> {
         }
     }
 
-    pub fn delete(&mut self, key: &[u8; 32], depth: usize) -> bool {
+    pub fn delete(&mut self, key: &[u8; 32], depth: usize) -> (Option<T>, bool) {
         if depth == KEY_LEN {
-            if matches!(self, MerkleNode::Leaf(_)) {
-                *self = MerkleNode::Empty;
-                return true;
+            match self {
+                MerkleNode::Leaf(l) => {
+                    let value = l.value.clone();
+                    *self = MerkleNode::Empty;
+                    return (Some(value), true)
+                },
+                _ => return (None, false),
             }
-            return false;
         }
         let deleted = match self {
             MerkleNode::Branch(branch) => {
                 let index = key[depth] as usize;
                 let child = match branch.children[index].as_mut() {
                     Some(child) => child,
-                    None => return false,
+                    None => return (None, false),
                 };
                 let deleted = child.delete(key, depth + 1);
-                if !deleted {
-                    return false;
+                if !deleted.1 {
+                    return (None, false);
                 }
                 branch.dirty = true;
                 if child.is_empty() {
                     branch.children[index] = None;
                     branch.occupied.retain(|&i| i != index as u8);
                 }
-                true
+                (deleted.0, true)
             }
-            _ => false,
+            _ => (None, false),
         };
-        if deleted && self.is_empty_branch() {
+        if deleted.1 && self.is_empty_branch() {
             *self = MerkleNode::Empty;
         }
         deleted
@@ -357,9 +365,9 @@ mod tests {
         let mut trie = SparseMerkleTrie::new();
         trie.insert(&key(1), 100);
         trie.insert(&key(2), 420);
-        assert!(trie.delete(&key(1)));
+        assert!(trie.delete(&key(1)).is_some());
         assert_eq!(trie.get(&key(2)), Some(&420));
-        assert!(!trie.delete(&key(1)));
+        assert_eq!(trie.delete(&key(1)), None);
     }
 
     #[test]

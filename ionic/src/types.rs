@@ -8,8 +8,7 @@ use crate::utils::ToBytes;
 
 const IONIC_ADDR_DOMAIN: &[u8] = b"IONIC_ADDR";
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[derive(Default)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct IonicPK {
     pk: [u8; 32],
 }
@@ -25,7 +24,6 @@ impl Debug for IonicPK {
         write!(f, "{}", URL_SAFE_NO_PAD_INDIFFERENT.encode(self.pk))
     }
 }
-
 
 impl From<IonicPK> for [u8; 32] {
     fn from(val: IonicPK) -> Self {
@@ -66,8 +64,7 @@ impl AsRef<[u8]> for IonicPK {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[derive(Default)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct IonicHash {
     hash: [u8; 32],
 }
@@ -83,7 +80,6 @@ impl Debug for IonicHash {
         write!(f, "{}", URL_SAFE_NO_PAD_INDIFFERENT.encode(self.hash))
     }
 }
-
 
 impl From<IonicHash> for [u8; 32] {
     fn from(val: IonicHash) -> Self {
@@ -137,12 +133,10 @@ impl IonicHash {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct IonicAddr {
     addr: [u8; 32],
 }
-
 
 impl From<IonicAddr> for [u8; 32] {
     fn from(val: IonicAddr) -> Self {

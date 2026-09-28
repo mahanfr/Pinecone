@@ -450,10 +450,11 @@ impl Lexer {
             if !self.is_empty() {
                 let next = self.source[self.cur];
                 if Self::is_single_char_token(next).is_some()
-                    && let Some(dtt) = Self::is_double_char_token(first, next) {
-                        self.drop();
-                        return Token::new(dtt, String::from_iter(vec![first, next]), loc);
-                    }
+                    && let Some(dtt) = Self::is_double_char_token(first, next)
+                {
+                    self.drop();
+                    return Token::new(dtt, String::from_iter(vec![first, next]), loc);
+                }
             }
             return Token::new(tt, first.to_string(), loc);
         }

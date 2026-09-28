@@ -1,12 +1,9 @@
-use std::{
-    collections::VecDeque,
-    fmt::Display,
-};
+use std::{collections::{HashMap, VecDeque}, fmt::Display};
 
 use ethnum::u256;
 
 use crate::{
-    accounts::Account, blocks::Block, merkletrie::SparseMerkleTrie, state::IonicState, transactions::TransactionError, types::{IonicAddr, IonicHash, IonicPK}, vm::VMExecutionError
+    accounts::Account, blocks::Block, journal::{Journal, Snapshot}, merkletrie::SparseMerkleTrie, state::IonicState, transactions::TransactionError, types::{IonicAddr, IonicHash, IonicPK}
 };
 
 #[derive(Debug)]
@@ -14,6 +11,8 @@ pub struct Blockchain {
     pub id: u64,
     pub chain: VecDeque<Block>,
     pub state: IonicState,
+    pub cache: HashMap<IonicAddr, Account>,
+    pub journal: Journal,
 }
 
 impl Blockchain {
@@ -24,7 +23,17 @@ impl Blockchain {
             id: chain_id,
             chain,
             state: IonicState::new(chain_id),
+            cache: HashMap::new(),
+            journal: Journal::new(),
         }
+    }
+
+    pub fn apply(&mut self) {
+        self.journal.clear();
+    }
+
+    pub fn revert(&mut self, sn: Snapshot) {
+        self.journal.revert(sn, &mut self.state);
     }
 
     // NOTE: This is for testing remove for production
@@ -36,6 +45,7 @@ impl Blockchain {
             storage: SparseMerkleTrie::new(),
         };
         self.state.add_account(addr, account.clone());
+        self.journal.account_created(addr);
     }
 
     pub fn verify_block(&self, block: &Block) -> Result<(), BlockchainError> {
@@ -76,7 +86,10 @@ impl Blockchain {
     }
 
     pub fn get_block(&self, index: u64) -> Option<&Block> {
-        self.chain.iter().find(|&block| block.header.index == index).map(|v| v as _)
+        self.chain
+            .iter()
+            .find(|&block| block.header.index == index)
+            .map(|v| v as _)
     }
 
     pub fn base_fee(&self) -> u256 {
@@ -86,29 +99,53 @@ impl Blockchain {
         }
     }
 
-    pub fn account(&self, addr: &IonicAddr) -> Result<&Account, VMExecutionError> {
-        self.state.get_account(addr).map_err(|e| e.into())
+    pub fn get_account(&self, addr: &IonicAddr) -> Option<&Account> {
+        self.state.get_account(addr).ok()
     }
 
-    pub fn account_mut(&mut self, addr: &IonicAddr) -> Result<&mut Account, VMExecutionError> {
-        self.state.get_mut_account(addr).map_err(|e| e.into())
+    pub fn set_account(&mut self, addr: &IonicAddr, account: Account) -> bool {
+        match self.state.get_mut_account(addr) {
+            Ok(ac) => {
+                self.journal.account_destroyed(*addr, Box::new(ac.clone()));
+                *ac = account;
+                true
+            }
+            Err(_) => false
+        }
     }
 
-    pub fn balance(&self, addr: &IonicAddr) -> Result<u256, VMExecutionError> {
-        Ok(self.state.get_account(addr)?.balance)
+    pub fn get_balance(&self, addr: &IonicAddr) -> Option<u256> {
+        self.state.get_account(addr).ok().map(|ac| ac.balance)
     }
 
-    pub fn code(&self, addr: &IonicAddr) -> Result<Vec<u8>, VMExecutionError> {
-        Ok(self.state.get_account(addr)?.code.clone())
+    pub fn set_balance(&mut self, addr: &IonicAddr, value: u256) -> bool {
+        match self.state.get_mut_account(addr) {
+            Ok(acc) => {
+                self.journal.balance_changed(*addr, acc.balance);
+                acc.balance = value;
+                true
+            }
+            Err(_) => false,
+        }
+    }
+
+    pub fn get_code(&self, addr: &IonicAddr) -> Option<Vec<u8>> {
+        self.state.get_account(addr).ok().map(|ac| ac.code.clone())
     }
 
     pub fn set_code(
         &mut self,
         new_addr: &IonicAddr,
         code: Vec<u8>,
-    ) -> Result<(), VMExecutionError> {
-        self.account_mut(new_addr)?.code = code;
-        Ok(())
+    ) -> bool {
+        match self.state.get_mut_account(new_addr) {
+            Ok(acc) => {
+                self.journal.code_changed(*new_addr, acc.code.clone());
+                acc.code = code;
+                true
+            }
+            Err(_) => false,
+        }
     }
 
     pub fn transfer(
@@ -116,33 +153,50 @@ impl Blockchain {
         sender: &IonicAddr,
         new_addr: &IonicAddr,
         value: u256,
-    ) -> Result<(), VMExecutionError> {
-        self.account_mut(sender)?.balance -= value;
-        self.account_mut(new_addr)?.balance += value;
-        Ok(())
+    ) -> bool {
+        if let Some(ac) = self.state.get_mut_account(sender).ok() {
+            self.journal.balance_changed(*sender, ac.balance);
+            ac.balance -= value;
+        } else {return false;}
+        if let Some(ac) = self.state.get_mut_account(new_addr).ok() {
+            self.journal.balance_changed(*new_addr, ac.balance);
+            ac.balance += value;
+        } else {return false;}
+        true
     }
 
     pub fn selfdestruct(&mut self, addr: &IonicAddr) -> bool {
-        self.state.accounts.delete(&addr.as_key())
+        match self.state.accounts.delete(&addr.as_key()) {
+            Some(prev) => {
+                self.journal.account_destroyed(*addr, Box::new(prev));
+                true
+            },
+            None => false,
+        }
     }
 
-    pub fn sload(&self, addr: &IonicAddr, key: &IonicHash) -> Result<&u256, VMExecutionError> {
-        let account = self.account(addr)?;
-        Ok(account
-            .storage
-            .get(&key.as_key())
-            .unwrap_or(&u256::ZERO))
+    pub fn sload(&self, addr: &IonicAddr, key: &IonicHash) -> Option<&u256> {
+        if let Ok(ac) = self.state.get_account(addr) {
+            ac.storage.get(&key.as_key())
+        } else {
+            None
+        }
     }
 
     pub fn sstore(
         &mut self,
         addr: &IonicAddr,
-        key: IonicHash,
+        key: u256,
         value: u256,
-    ) -> Result<(), VMExecutionError> {
-        let account = self.account_mut(addr)?;
-        account.storage.insert(&key.as_key(), value);
-        Ok(())
+    ) -> bool {
+        let nkey = key.to_le_bytes();
+        if let Ok(ac) = self.state.get_mut_account(addr) {
+            let prev = ac.storage.insert(&nkey, value);
+            self.journal.storage_chanaged(*addr, nkey, prev);
+            true
+        } else {
+            false
+        }
     }
 }
 

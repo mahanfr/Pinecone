@@ -1,6 +1,8 @@
+pub mod access;
 pub mod accounts;
 pub mod blockchian;
 pub mod blocks;
+pub mod journal;
 pub mod keygen;
 pub mod kzg;
 pub mod mempool;
@@ -12,5 +14,3 @@ pub mod types;
 pub mod utils;
 pub mod verkletrie;
 pub mod vm;
-pub mod journal;
-pub mod access;

@@ -29,8 +29,8 @@ impl<T: Clone + ToBytes> SparseVerkleTrie<T> {
             root: VerkleNode::Branch(VerkleNodeBranch::new_empty()),
         }
     }
-    pub fn insert(&mut self, key: &[u8; 32], value: T) {
-        self.root.insert(key, 0, value);
+    pub fn insert(&mut self, key: &[u8; 32], value: T) -> Option<T> {
+        self.root.insert(key, 0, value)
     }
     pub fn get(&self, key: &[u8; 32]) -> Option<&T> {
         self.root.get(key, 0)
@@ -38,8 +38,8 @@ impl<T: Clone + ToBytes> SparseVerkleTrie<T> {
     pub fn get_mut(&mut self, key: &[u8; 32]) -> Option<&mut T> {
         self.root.get_mut(key, 0)
     }
-    pub fn delete(&mut self, key: &[u8; 32]) -> bool {
-        self.root.delete(key, 0)
+    pub fn delete(&mut self, key: &[u8; 32]) -> Option<T> {
+        self.root.delete(key, 0).0
     }
     fn root_commitment(&mut self) -> G1Projective {
         self.root.commit(&self.kzg)
@@ -136,11 +136,15 @@ enum VerkleNode<T: ToBytes + Clone> {
 }
 
 impl<T: Clone + ToBytes> VerkleNode<T> {
-    pub fn insert(&mut self, key: &[u8; 32], depth: usize, value: T) {
+    pub fn insert(&mut self, key: &[u8; 32], depth: usize, value: T) -> Option<T> {
         if depth == KEY_LEN {
             let commitment = leaf_commitment(key, &value.to_bytes());
+            let prev = match self {
+                Self::Empty | Self::Branch(_) => None,
+                Self::Leaf(l) => Some(l.value.clone()),
+            };
             *self = VerkleNode::Leaf(VerkleNodeLeaf { commitment, value });
-            return;
+            return prev;
         }
         match self {
             Self::Empty => {
@@ -163,6 +167,7 @@ impl<T: Clone + ToBytes> VerkleNode<T> {
                     .insert(key, depth + 1, value);
             }
         }
+        return None;
     }
 
     pub fn get_mut(&mut self, key: &[u8; 32], depth: usize) -> Option<&mut T> {
@@ -197,35 +202,38 @@ impl<T: Clone + ToBytes> VerkleNode<T> {
         }
     }
 
-    pub fn delete(&mut self, key: &[u8; 32], depth: usize) -> bool {
+    pub fn delete(&mut self, key: &[u8; 32], depth: usize) -> (Option<T>, bool) {
         if depth == KEY_LEN {
-            if matches!(self, VerkleNode::Leaf(_)) {
-                *self = VerkleNode::Empty;
-                return true;
+            match self {
+                VerkleNode::Leaf(l) => {
+                    let value = l.value.clone();
+                    *self = VerkleNode::Empty;
+                    return (Some(value), true)
+                }
+                _ => return (None, false),
             }
-            return false;
         }
         let deleted = match self {
             VerkleNode::Branch(branch) => {
                 let index = key[depth] as usize;
                 let child = match branch.children[index].as_mut() {
                     Some(child) => child,
-                    None => return false,
+                    None => return (None, false),
                 };
                 let deleted = child.delete(key, depth + 1);
-                if !deleted {
-                    return false;
+                if !deleted.1 {
+                    return (None, false);
                 }
                 branch.dirty = true;
                 if child.is_empty() {
                     branch.children[index] = None;
                     branch.occupied.retain(|&i| i != index as u8);
                 }
-                true
+                (deleted.0, true)
             }
-            _ => false,
+            _ => (None, false),
         };
-        if deleted && self.is_empty_branch() {
+        if deleted.1 && self.is_empty_branch() {
             *self = VerkleNode::Empty;
         }
         deleted
@@ -376,9 +384,9 @@ mod tests {
         let mut trie = SparseVerkleTrie::new();
         trie.insert(&key(1), 100);
         trie.insert(&key(2), 420);
-        assert!(trie.delete(&key(1)));
+        assert!(trie.delete(&key(1)).is_some());
         assert_eq!(trie.get(&key(2)), Some(&420));
-        assert!(!trie.delete(&key(1)));
+        assert!(trie.delete(&key(1)).is_none());
     }
 
     #[test]

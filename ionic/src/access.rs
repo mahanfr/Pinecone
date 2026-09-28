@@ -4,17 +4,19 @@ use crate::types::{IonicAddr, IonicHash};
 
 pub const COLD_ACCOUNT_ACCESS_COST: u64 = 2600;
 pub const WARM_ACCOUNT_ACCESS_COST: u64 = 100;
-pub const COLD_SLOAD_COST:          u64 = 2100;
-pub const WARM_SLOAD_COST:          u64 = 100;
+pub const COLD_SLOAD_COST: u64 = 2100;
+pub const WARM_SLOAD_COST: u64 = 100;
 
 #[derive(Debug, Default, Clone)]
 pub struct AccessList {
-    addresses:     HashSet<IonicAddr>,
+    addresses: HashSet<IonicAddr>,
     storage_slots: HashSet<(IonicAddr, IonicHash)>,
 }
 
 impl AccessList {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     pub fn reset(&mut self) {
         self.addresses.clear();

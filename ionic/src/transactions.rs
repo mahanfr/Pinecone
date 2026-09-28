@@ -310,7 +310,7 @@ impl Error for TransactionError {}
 mod tests {
     use ethnum::{AsU256, u256};
 
-use crate::{keygen::generate_key_pair, transactions::Transaction};
+    use crate::{keygen::generate_key_pair, transactions::Transaction};
 
     #[test]
     pub fn sign_and_verify_transaction() {

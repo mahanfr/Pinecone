@@ -117,8 +117,8 @@ impl Block {
             return current_base_fee;
         }
         // base_fee(N) * (gas_used(N) - gas_target(N)) / (gas_target(N) * 8)
-        let inflaition =
-            current_base_fee * ((last_block_header.gas_used - gas_target) / gas_target * 8).as_u256();
+        let inflaition = current_base_fee
+            * ((last_block_header.gas_used - gas_target) / gas_target * 8).as_u256();
         let base_fee = current_base_fee + inflaition;
         if base_fee < 1 {
             return u256::ONE;
