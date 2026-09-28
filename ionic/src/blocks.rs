@@ -131,7 +131,7 @@ impl Block {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct BlockHeader {
     pub version: u8,
     pub index: u64,

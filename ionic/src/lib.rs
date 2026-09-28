@@ -12,3 +12,5 @@ pub mod types;
 pub mod utils;
 pub mod verkletrie;
 pub mod vm;
+pub mod journal;
+pub mod access;

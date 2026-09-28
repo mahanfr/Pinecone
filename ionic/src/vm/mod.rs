@@ -1,5 +1,4 @@
 pub mod callframe;
-pub mod context;
 pub mod instructions;
 pub mod logs;
 pub mod memory;
@@ -10,12 +9,12 @@ use ethnum::{AsU256, u256};
 
 use crate::{
     blockchian::Blockchain,
-    blocks::Block,
+    blocks::{Block, BlockHeader},
     transactions::TransactionError,
     types::{IonicAddr, IonicHash},
     utils::ToBytes,
     vm::{
-        callframe::CallFrame, context::ExecutionContext, instructions::IonicInstr, logs::IonicLog,
+        callframe::CallFrame, instructions::IonicInstr, logs::IonicLog,
         memory::IonicMemory, opcodes::IonicOpcode,
     },
 };
@@ -24,55 +23,65 @@ const MAX_CALL_DEPTH: u32 = 1024;
 
 #[derive(Debug, Clone, Default)]
 pub struct VirtualMachine {
-    pub stack: Vec<u256>,
-    pub code: Vec<IonicInstr>,
-    pub memory: IonicMemory,
     pub tstorage: HashMap<u256, u256>,
+    pub block: BlockHeader,
+    pub call_depth: u32,
+    pub gas_used: u64,
+    pub logs: Vec<IonicLog>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct VMInstance {
+    pub stack: Vec<u256>,
+    pub memory: IonicMemory,
     pub pc: usize,
     pub gas_used: u64,
-
-    pub ctx: ExecutionContext,
     pub stopped: bool,
     pub reverted: bool,
     pub return_value: Vec<u8>,
-    pub raw_code: Vec<u8>,
-    pub call_depth: u32,
+    pub instructions: Vec<IonicInstr>,
+
+    pub address: IonicAddr,
+    pub origin: IonicAddr,
+    pub caller: IonicAddr,
+    pub nonce: u64,
+    pub call_value: u256,
+    pub gas_price: u256,
+    pub calldata: Vec<u8>,
+    pub code: Vec<u8>,
+    pub return_data: Vec<u8>,
+    pub is_static: bool,
 }
 
 impl VirtualMachine {
-    pub fn new() -> Self {
-        Self::default()
-    }
+    pub fn new() -> Self { Self::default() }
 
-    fn new_child(&self, new_addr: IonicAddr, value: u256) -> Self {
-        let sender = self.ctx.address;
-        let ctx = ExecutionContext {
-            address: new_addr,
-            origin: self.ctx.origin,
-            caller: sender,
-            call_value: value,
-            nonce: self.ctx.nonce,
-            gas_price: self.ctx.gas_price,
-            calldata: Vec::new(),
-            logs: Vec::new(),
-            return_data: Vec::new(),
-            is_static: false,
+    pub fn eval(
+        blockchain: &mut Blockchain,
+        block: &Block,
+        tx_index: usize,
+    ) -> Result<(), VMExecutionError> {
+        let mut vm = Self::default();
+        let tx = &block.transactions[tx_index];
+        let sender_addr = tx.sender();
+
+        let code_bytes = tx.data.to_vec();
+        let mut instance = VMInstance {
+            address: tx
+                .recepient
+                .unwrap_or_else(|| Self::derive_contract_addr(sender_addr, tx.nonce)),
+            origin: sender_addr,
+            caller: sender_addr,
+            call_value: tx.value,
+            nonce: tx.nonce,
+            gas_price: tx.gas_price(block.next_base_fee()).unwrap(),
+            instructions: Self::parse(&code_bytes)?,
+            calldata: code_bytes.clone(),
+            code: code_bytes,
+            ..Default::default()
         };
-        Self {
-            tstorage: self.tstorage.clone(),
-            call_depth: self.call_depth + 1,
-            ctx,
-            ..Default::default()
-        }
-    }
-
-    fn new_child_with_ctx(&self, ctx: ExecutionContext) -> Self {
-        Self {
-            tstorage: self.tstorage.clone(),
-            call_depth: self.call_depth + 1,
-            ctx,
-            ..Default::default()
-        }
+        vm.block = block.header.clone();
+        vm.run(&mut instance, blockchain)
     }
 
     pub fn parse(code: &[u8]) -> Result<Vec<IonicInstr>, VMExecutionError> {
@@ -93,47 +102,14 @@ impl VirtualMachine {
         code
     }
 
-    pub fn load(&mut self, code: &[u8]) -> Result<(), VMExecutionError> {
-        self.code = Self::parse(code)?;
-        self.raw_code = code.to_vec();
-        Ok(())
-    }
-
-    pub fn eval(
-        &mut self,
-        tx_index: usize,
-        blockchain: &mut Blockchain,
-        block: &Block,
-    ) -> Result<(), VMExecutionError> {
-        let tx = &block.transactions[tx_index];
-        let sender_addr = tx.sender();
-
-        let ctx = ExecutionContext {
-            address: tx
-                .recepient
-                .unwrap_or_else(|| self.derive_contract_addr(sender_addr, tx.nonce)),
-            origin: sender_addr,
-            caller: sender_addr,
-            call_value: tx.value,
-            nonce: tx.nonce,
-            gas_price: tx.gas_price(block.next_base_fee()).unwrap(),
-            calldata: tx.data.clone(),
-            logs: Vec::new(),
-            return_data: Vec::new(),
-            is_static: false,
-        };
-        self.ctx = ctx;
-        self.run(block, blockchain)
-    }
-
     pub fn run(
         &mut self,
-        block: &Block,
+        instance: &mut VMInstance,
         blockchain: &mut Blockchain,
     ) -> Result<(), VMExecutionError> {
         use opcodes::IonicOpcode::*;
-        while self.pc < self.code.len() {
-            let instr = self.code[self.pc];
+        while instance.pc < instance.instructions.len() {
+            let instr = instance.instructions[instance.pc];
             match &instr.opcode {
                 STOP => {
                     break;
@@ -141,130 +117,130 @@ impl VirtualMachine {
                 INVALID => return Err(VMExecutionError::IllegalInstruction(instr.opcode as u8)),
                 ADD | MUL | SUB | DIV | SDIV | MOD | SMOD | EXP | SIGNEXTEND | LT | GT | SLT
                 | SGT | EQ | AND | OR | XOR | BYTE | SHL | SHR | SAR => {
-                    self.eval_binary(&instr.opcode)?
+                    instance.eval_binary(&instr.opcode)?
                 }
-                ISZERO | NOT => self.eval_unary(&instr.opcode)?,
-                ADDMOD | MULMOD => self.eval_ternary(&instr.opcode)?,
-                HASH => self.eval_hash()?,
-                ADDRESS => self.address(self.ctx.address),
+                ISZERO | NOT => instance.eval_unary(&instr.opcode)?,
+                ADDMOD | MULMOD => instance.eval_ternary(&instr.opcode)?,
+                HASH => instance.eval_hash()?,
+                ADDRESS => instance.address(instance.address),
                 BALANCE => {
-                    let addr = self.pop_internal()?;
-                    self.gas_used += 2100;
-                    self.balance(addr.into(), blockchain)?
+                    let addr = instance.pop_stack()?;
+                    instance.gas_used += 2100;
+                    instance.balance(addr.into(), blockchain)?
                 }
-                SELFBALANCE => self.balance(self.ctx.address, blockchain)?,
+                SELFBALANCE => instance.balance(instance.address, blockchain)?,
                 BASEFEE => {
-                    self.stack.push(blockchain.base_fee().as_u256());
+                    instance.stack.push(blockchain.base_fee().as_u256());
                 }
                 GASLIMIT => {
-                    self.stack.push(block.header.gas_limit.as_u256());
+                    instance.stack.push(self.block.gas_limit.as_u256());
                 }
                 GASPRICE => {
-                    self.stack.push(self.ctx.gas_price.as_u256());
+                    instance.stack.push(instance.gas_price.as_u256());
                 }
                 NUMBER => {
-                    self.stack.push(block.header.index.as_u256());
+                    instance.stack.push(self.block.index.as_u256());
                 }
                 TIMESTAMP => {
-                    self.stack.push(block.header.timestamp.as_u256());
+                    instance.stack.push(self.block.timestamp.as_u256());
                 }
                 COINBASE => {
-                    let proposer_addr = IonicAddr::from_pk(&block.header.proposer);
-                    self.stack.push(proposer_addr.into());
+                    let proposer_addr = IonicAddr::from_pk(&self.block.proposer);
+                    instance.stack.push(proposer_addr.into());
                 }
                 BLOCKHASH => {
-                    let index = self.pop_internal()?;
+                    let index = instance.pop_stack()?;
                     if let Some(block) = blockchain.get_block(index.as_u64()) {
-                        self.stack.push(block.hash().into())
+                        instance.stack.push(block.hash().into())
                     } else {
-                        self.stack.push(u256::ZERO);
+                        instance.stack.push(u256::ZERO);
                     }
                 }
-                ORIGIN => self.address(self.ctx.origin),
-                CALLER => self.address(self.ctx.caller),
-                CALLVALUE => self.stack.push(self.ctx.call_value.as_u256()),
+                ORIGIN => instance.address(instance.origin),
+                CALLER => instance.address(instance.caller),
+                CALLVALUE => instance.stack.push(instance.call_value.as_u256()),
                 CALLDATALOAD => {
-                    let off = self.pop_internal()?.as_usize();
-                    let calldata: [u8; 32] = self.ctx.calldata[off..off + 32].try_into().unwrap();
-                    self.stack.push(u256::from_le_bytes(calldata));
+                    let off = instance.pop_stack()?.as_usize();
+                    let calldata: [u8; 32] = instance.calldata[off..off + 32].try_into().unwrap();
+                    instance.stack.push(u256::from_le_bytes(calldata));
                 }
                 CALLDATASIZE => {
-                    self.stack.push(self.ctx.calldata.len().as_u256());
+                    instance.stack.push(instance.calldata.len().as_u256());
                 }
                 CALLDATACOPY => {
-                    let len = self.pop_internal()?;
-                    let ost = self.pop_internal()?;
-                    let destost = self.pop_internal()?;
-                    let cost = self.memory.expantion_cost(destost, len);
-                    self.memory
-                        .write_padded(destost, len, ost, &self.ctx.calldata);
-                    self.gas_used += cost;
+                    let len = instance.pop_stack()?;
+                    let ost = instance.pop_stack()?;
+                    let destost = instance.pop_stack()?;
+                    let cost = instance.memory.expantion_cost(destost, len);
+                    instance.memory
+                        .write_padded(destost, len, ost, &instance.calldata);
+                    instance.gas_used += cost;
                 }
-                CODESIZE => self.stack.push(self.raw_code.len().as_u256()),
+                CODESIZE => instance.stack.push(instance.code.len().as_u256()),
                 CODECOPY => {
-                    let len = self.pop_internal()?;
-                    let ost = self.pop_internal()?;
-                    let destost = self.pop_internal()?;
-                    let cost = self.memory.expantion_cost(destost, len);
-                    self.memory.write_padded(destost, len, ost, &self.raw_code);
-                    self.gas_used += cost;
+                    let len = instance.pop_stack()?;
+                    let ost = instance.pop_stack()?;
+                    let destost = instance.pop_stack()?;
+                    let cost = instance.memory.expantion_cost(destost, len);
+                    instance.memory.write_padded(destost, len, ost, &instance.code);
+                    instance.gas_used += cost;
                 }
                 EXTCODESIZE => {
-                    let addr = self.pop_internal()?;
-                    self.gas_used += 2100;
+                    let addr = instance.pop_stack()?;
+                    instance.gas_used += 2100;
                     let code = blockchain.code(&addr.into()).unwrap_or_default();
-                    self.stack.push(code.len().as_u256());
+                    instance.stack.push(code.len().as_u256());
                 }
                 EXTCODECOPY => {
-                    let len = self.pop_internal()?;
-                    let ost = self.pop_internal()?;
-                    let destost = self.pop_internal()?;
-                    let addr = self.pop_internal()?;
-                    self.gas_used += 2100;
+                    let len = instance.pop_stack()?;
+                    let ost = instance.pop_stack()?;
+                    let destost = instance.pop_stack()?;
+                    let addr = instance.pop_stack()?;
+                    instance.gas_used += 2100;
                     let code = blockchain.code(&addr.into()).unwrap_or_default();
-                    let cost = self.memory.expantion_cost(destost, len);
-                    self.memory.write_padded(destost, len, ost, &code);
-                    self.gas_used += cost;
+                    let cost = instance.memory.expantion_cost(destost, len);
+                    instance.memory.write_padded(destost, len, ost, &code);
+                    instance.gas_used += cost;
                 }
                 EXTCODEHASH => {
-                    let addr = self.pop_internal()?;
-                    self.gas_used += 2100;
+                    let addr = instance.pop_stack()?;
+                    instance.gas_used += 2100;
                     let code = blockchain.code(&addr.into()).unwrap_or_default();
                     let hash: IonicHash = blake3::hash(&code).into();
-                    self.stack.push(hash.into());
+                    instance.stack.push(hash.into());
                 }
                 RETURNDATASIZE => {
-                    self.stack.push(self.ctx.return_data.len().as_u256());
+                    instance.stack.push(instance.return_data.len().as_u256());
                 }
                 RETURNDATACOPY => {
-                    let len = self.pop_internal()?;
-                    let ost = self.pop_internal()?;
-                    let destost = self.pop_internal()?;
-                    let cost = self.memory.expantion_cost(destost, len);
-                    self.memory
-                        .write_padded(destost, len, ost, &self.ctx.return_data);
-                    self.gas_used += cost;
+                    let len = instance.pop_stack()?;
+                    let ost = instance.pop_stack()?;
+                    let destost = instance.pop_stack()?;
+                    let cost = instance.memory.expantion_cost(destost, len);
+                    instance.memory
+                        .write_padded(destost, len, ost, &instance.return_data);
+                    instance.gas_used += cost;
                 }
                 CHAINID => {
-                    self.stack.push(blockchain.id.as_u256());
+                    instance.stack.push(blockchain.id.as_u256());
                 }
-                POP => self.pop()?,
-                PC => self.pc(),
-                GAS => self.gas(),
+                POP => instance.pop()?,
+                PC => instance.pc(),
+                GAS => instance.gas(),
                 PUSH0 | PUSH1 | PUSH2 | PUSH3 | PUSH4 | PUSH5 | PUSH6 | PUSH7 | PUSH8 | PUSH9
                 | PUSH10 | PUSH11 | PUSH12 | PUSH13 | PUSH14 | PUSH15 | PUSH16 | PUSH17
                 | PUSH18 | PUSH19 | PUSH20 | PUSH21 | PUSH22 | PUSH23 | PUSH24 | PUSH25
                 | PUSH26 | PUSH27 | PUSH28 | PUSH29 | PUSH30 | PUSH31 | PUSH32 => {
                     if let Some(imm) = instr.data {
-                        self.push(imm);
+                        instance.push(imm);
                     } else if instr.opcode == IonicOpcode::PUSH0 {
-                        self.push(u256::ZERO);
+                        instance.push(u256::ZERO);
                     } else {
                         return Err(VMExecutionError::SyntaxError(instr));
                     }
                 }
                 DUP1 | DUP2 | DUP3 | DUP4 | DUP5 | DUP6 | DUP7 | DUP8 | DUP9 | DUP10 | DUP11
-                | DUP12 | DUP13 | DUP14 | DUP15 | DUP16 => self.dup(
+                | DUP12 | DUP13 | DUP14 | DUP15 | DUP16 => instance.dup(
                     instr
                         .opcode
                         .stack_position()
@@ -272,7 +248,7 @@ impl VirtualMachine {
                 ),
                 SWAP1 | SWAP2 | SWAP3 | SWAP4 | SWAP5 | SWAP6 | SWAP7 | SWAP8 | SWAP9 | SWAP10
                 | SWAP11 | SWAP12 | SWAP13 | SWAP14 | SWAP15 | SWAP16 => {
-                    self.swap(
+                    instance.swap(
                         instr
                             .opcode
                             .stack_position()
@@ -280,54 +256,434 @@ impl VirtualMachine {
                     );
                 }
                 JUMP => {
-                    self.jump()?;
+                    instance.jump()?;
                     continue;
                 }
                 JUMPI => {
-                    self.jumpi()?;
+                    instance.jumpi()?;
                     continue;
                 }
                 JUMPDEST => (),
-                MSTORE => self.mstore()?,
-                MSTORE8 => self.mstore8()?,
-                MLOAD => self.mload()?,
-                MSIZE => self.stack.push(self.memory.size()),
-                MCOPY => self.mcpy()?,
-                TSTORE => self.tstore()?,
-                TLOAD => self.tload()?,
-                SSTORE => self.sstore(blockchain)?,
-                SLOAD => self.sload(blockchain)?,
+                MSTORE => instance.mstore()?,
+                MSTORE8 => instance.mstore8()?,
+                MLOAD => instance.mload()?,
+                MSIZE => instance.stack.push(instance.memory.size()),
+                MCOPY => instance.mcpy()?,
+                TSTORE => self.tstore(instance)?,
+                TLOAD => self.tload(instance)?,
+                SSTORE => instance.sstore(blockchain)?,
+                SLOAD => instance.sload(blockchain)?,
                 LOG0 | LOG1 | LOG2 | LOG3 | LOG4 => {
-                    self.log(instr.opcode.log_topics().expect("Not a Log instruction"))?;
+                    self.log(instance, instr.opcode.log_topics().expect("Not a Log instruction"))?;
                 }
-                CREATE => self.create(block, blockchain)?,
-                CALL => self.call(block, blockchain)?,
-                CALLCODE => self.callcode(block, blockchain)?,
+                CREATE => self.create(instance, blockchain)?,
+                CALL => self.call(instance, blockchain)?,
+                CALLCODE => self.callcode(instance, blockchain)?,
                 RETURN => {
-                    self.ret()?;
+                    self.ret(instance)?;
                     break;
                 }
-                DELEGATECALL => self.delegatecall(block, blockchain)?,
-                CREATE2 => self.create2(block, blockchain)?,
-                STATICCALL => self.staticcall(block, blockchain)?,
+                DELEGATECALL => self.delegatecall(instance, blockchain)?,
+                CREATE2 => self.create2(instance, blockchain)?,
+                STATICCALL => self.staticcall(instance, blockchain)?,
                 REVERT => {
-                    self.revert()?;
+                    self.revert(instance)?;
                     break;
                 }
                 SELFDESTRUCT => {
-                    self.selfdestruct(blockchain)?;
+                    self.selfdestruct(instance, blockchain)?;
                     break;
                 }
                 PREVRANDAO => todo!(),
             }
-            self.pc += 1;
+            instance.pc += 1;
             self.gas_used += instr.opcode.gas().unwrap_or_default();
         }
         Ok(())
     }
 
+    fn tstore(&mut self, instance: &mut VMInstance) -> Result<(), VMExecutionError> {
+        if instance.is_static {
+            return Err(VMExecutionError::StaticViolation(instance.get_instr()));
+        }
+        let value = instance.pop_stack()?;
+        let key_val = instance.pop_stack()?;
+        self.tstorage.insert(key_val, value);
+        Ok(())
+    }
+
+    fn tload(&mut self, instance: &mut VMInstance) -> Result<(), VMExecutionError> {
+        let key = instance.pop_stack()?;
+        let Some(value) = self.tstorage.get(&key) else {
+            return Err(VMExecutionError::TransiantKeyNotFound(key));
+        };
+        instance.stack.push(*value);
+        Ok(())
+    }
+
+    fn log(&mut self, instance: &mut VMInstance, num_topics: u8) -> Result<(), VMExecutionError> {
+        if instance.is_static {
+            return Err(VMExecutionError::StaticViolation(instance.get_instr()));
+        }
+        let len = instance.pop_stack()?;
+        let ost = instance.pop_stack()?;
+        let data = instance.memory.mload8(ost, len);
+        let mut topics = Vec::new();
+        for _ in 0..num_topics {
+            let topic = instance.pop_stack()?;
+            topics.push(topic);
+        }
+        let log = IonicLog {
+            address: instance.address,
+            topics,
+            data,
+        };
+        self.logs.push(log);
+        Ok(())
+    }
+
+    fn call(&mut self, instance: &mut VMInstance, blockchain: &mut Blockchain) -> Result<(), VMExecutionError> {
+        let out_size = instance.pop_stack()?;
+        let out_offset = instance.pop_stack()?;
+        let in_size = instance.pop_stack()?;
+        let in_offset = instance.pop_stack()?;
+        let value = instance.pop_stack()?;
+        let to: IonicAddr = instance.pop_stack()?.into();
+        let gas = instance.pop_stack()?;
+
+        let call_frame = CallFrame {
+            gas: gas.as_u64(),
+            recepient: to,
+            value,
+            in_offset,
+            in_size,
+            out_offset,
+            out_size,
+            code_addr: to,
+            ctx_addr: to,
+            caller: instance.address,
+            call_value: value,
+            is_static: false,
+            transfer_value: true,
+        };
+        self.perform_call(instance, blockchain, call_frame)
+    }
+
+    fn callcode(
+        &mut self,
+        instance: &mut VMInstance,
+        blockchain: &mut Blockchain,
+    ) -> Result<(), VMExecutionError> {
+        let out_size = instance.pop_stack()?;
+        let out_offset = instance.pop_stack()?;
+        let in_size = instance.pop_stack()?;
+        let in_offset = instance.pop_stack()?;
+        let value = instance.pop_stack()?;
+        let to: IonicAddr = instance.pop_stack()?.into();
+        let gas = instance.pop_stack()?;
+
+        let call_frame = CallFrame {
+            gas: gas.as_u64(),
+            recepient: to,
+            value,
+            in_offset,
+            in_size,
+            out_offset,
+            out_size,
+            code_addr: to,
+            ctx_addr: instance.address,
+            caller: instance.address,
+            call_value: value,
+            is_static: false,
+            transfer_value: false,
+        };
+        self.perform_call(instance, blockchain, call_frame)
+    }
+    fn ret(&mut self, instance: &mut VMInstance) -> Result<(), VMExecutionError> {
+        let len = instance.pop_stack()?;
+        let offset = instance.pop_stack()?;
+        instance.return_value = instance.memory.mload8(offset, len);
+        instance.stopped = true;
+        Ok(())
+    }
+    fn delegatecall(
+        &mut self,
+        instance: &mut VMInstance,
+        blockchain: &mut Blockchain,
+    ) -> Result<(), VMExecutionError> {
+        let out_size = instance.pop_stack()?;
+        let out_offset = instance.pop_stack()?;
+        let in_size = instance.pop_stack()?;
+        let in_offset = instance.pop_stack()?;
+        let to: IonicAddr = instance.pop_stack()?.into();
+        let gas = instance.pop_stack()?;
+
+        let call_frame = CallFrame {
+            gas: gas.as_u64(),
+            recepient: to,
+            value: u256::ZERO,
+            in_offset,
+            in_size,
+            out_offset,
+            out_size,
+            code_addr: to,
+            ctx_addr: to,
+            caller: instance.address,
+            call_value: u256::ZERO,
+            is_static: true,
+            transfer_value: false,
+        };
+
+        self.perform_call(instance, blockchain, call_frame)
+    }
+    fn create(
+        &mut self,
+        instance: &mut VMInstance,
+        blockchain: &mut Blockchain,
+    ) -> Result<(), VMExecutionError> {
+        let size = instance.pop_stack()?;
+        let offset = instance.pop_stack()?;
+        let value = instance.pop_stack()?;
+        let init_code = instance.memory.mload8(offset, size);
+        self.create_contract(instance, value, init_code, None, blockchain)
+    }
+    fn create2(
+        &mut self,
+        instance: &mut VMInstance,
+        blockchain: &mut Blockchain,
+    ) -> Result<(), VMExecutionError> {
+        let salt = instance.pop_stack()?;
+        let len = instance.pop_stack()?;
+        let offset = instance.pop_stack()?;
+        let value = instance.pop_stack()?;
+        let init_code = instance.memory.mload8(offset, len);
+        self.create_contract(instance, value, init_code, Some(salt), blockchain)
+    }
+    fn staticcall(
+        &mut self,
+        instance: &mut VMInstance,
+        blockchain: &mut Blockchain,
+    ) -> Result<(), VMExecutionError> {
+        let out_size = instance.pop_stack()?;
+        let out_offset = instance.pop_stack()?;
+        let in_size = instance.pop_stack()?;
+        let in_offset = instance.pop_stack()?;
+        let to: IonicAddr = instance.pop_stack()?.into();
+        let gas = instance.pop_stack()?;
+
+        let call_frame = CallFrame {
+            gas: gas.as_u64(),
+            recepient: to,
+            value: u256::ZERO,
+            in_offset,
+            in_size,
+            out_offset,
+            out_size,
+            code_addr: to,
+            ctx_addr: to,
+            caller: instance.address,
+            call_value: u256::ZERO,
+            is_static: true,
+            transfer_value: false,
+        };
+
+        self.perform_call(instance, blockchain, call_frame)
+    }
+    fn revert(&mut self, instance: &mut VMInstance) -> Result<(), VMExecutionError> {
+        let size = instance.pop_stack()?;
+        let offset = instance.pop_stack()?;
+        instance.return_value = instance.memory.mload8(offset, size);
+        instance.reverted = true;
+        instance.stopped = true;
+        Ok(())
+    }
+    fn selfdestruct(&mut self,instance: &mut VMInstance, blockchain: &mut Blockchain) -> Result<(), VMExecutionError> {
+        if instance.is_static {
+            return Err(VMExecutionError::StaticViolation(instance.get_instr()));
+        }
+
+        let beneficiary: IonicAddr = instance.pop_stack()?.into();
+        let bal = blockchain
+            .balance(&instance.address)
+            .unwrap_or_default();
+
+        if bal > 0 {
+            blockchain.transfer(&instance.address, &beneficiary, bal)?;
+        }
+
+        blockchain.selfdestruct(&instance.address);
+        instance.stopped = true;
+        Ok(())
+    }
+
+    fn perform_call(
+        &mut self,
+        instance: &mut VMInstance,
+        blockchain: &mut Blockchain,
+        frame: CallFrame,
+    ) -> Result<(), VMExecutionError> {
+        if self.call_depth >= MAX_CALL_DEPTH {
+            instance.stack.push(u256::ZERO);
+            return Ok(());
+        }
+        if instance.is_static && frame.value > 0 {
+            return Err(VMExecutionError::StaticViolation(instance.get_instr()));
+        }
+        let value = frame.value;
+        let call_value = frame.call_value;
+
+        if value > 0 {
+            if blockchain
+                .balance(&instance.address)
+                .unwrap_or_default()
+                < value
+            {
+                instance.stack.push(u256::ZERO);
+                return Ok(());
+            }
+            if frame.transfer_value {
+                let _ = blockchain.transfer(&instance.address, &frame.recepient, value);
+            }
+        }
+
+        let code = blockchain.code(&frame.code_addr).unwrap_or_default();
+
+        if code.is_empty() {
+            instance.stack.push(u256::ONE);
+            return Ok(());
+        }
+
+        let input = instance.memory.mload8(frame.in_offset, frame.in_size);
+
+        let mut child_instance = VMInstance {
+            address: frame.ctx_addr,
+            origin: instance.origin,
+            caller: frame.caller,
+            call_value,
+            nonce: instance.nonce,
+            gas_price: instance.gas_price,
+            instructions: Self::parse(&code)?,
+            calldata: input,
+            code: code,
+            is_static: frame.is_static,
+            ..Default::default()
+        };
+
+        let run_result = self.run(&mut child_instance, blockchain);
+        self.gas_used += child_instance.gas_used;
+        instance.return_data = child_instance.return_value.clone();
+        match run_result {
+            Ok(()) if !child_instance.reverted => {
+                instance.memory.write_padded(
+                    frame.out_offset,
+                    frame.out_size,
+                    u256::ZERO,
+                    &child_instance.return_value,
+                );
+                instance.stack.push(u256::ONE);
+            }
+            _ => {
+                if frame.transfer_value && value > 0 {
+                    let _ = blockchain.transfer(&frame.recepient, &instance.address, value);
+                    instance.stack.push(u256::ZERO);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn create_contract(
+        &mut self,
+        instance: &mut VMInstance,
+        value: u256,
+        init_code: Vec<u8>,
+        salt: Option<u256>,
+        blockchain: &mut Blockchain,
+    ) -> Result<(), VMExecutionError> {
+        if instance.is_static {
+            return Err(VMExecutionError::StaticViolation(instance.get_instr()));
+        }
+
+        if self.call_depth >= MAX_CALL_DEPTH {
+            instance.stack.push(u256::ZERO);
+            return Ok(());
+        }
+
+        let sender = instance.address;
+
+        if blockchain.balance(&sender).unwrap_or_default() < value {
+            instance.stack.push(u256::ZERO);
+            return Ok(());
+        }
+
+        let new_addr: IonicAddr = if let Some(salt) = salt {
+            let code_hash = blake3::hash(&init_code);
+            let mut buf = Vec::with_capacity(1 + 20 + 32 + 32);
+            buf.push(0xff);
+            buf.extend_from_slice(sender.as_ref());
+            buf.extend_from_slice(&salt.to_le_bytes());
+            buf.extend_from_slice(code_hash.as_bytes());
+            let h = blake3::hash(&buf).as_bytes().to_owned();
+            h.into()
+        } else {
+            Self::derive_contract_addr(sender, instance.nonce)
+        };
+
+        if value > 0 {
+            blockchain.transfer(&sender, &new_addr, value)?;
+        }
+
+        let mut child_instance = VMInstance {
+            address: new_addr,
+            origin: instance.origin,
+            caller: sender,
+            call_value: value,
+            nonce: instance.nonce,
+            gas_price: instance.gas_price,
+            is_static: false,
+            instructions: Self::parse(&init_code)?,
+            code: init_code,
+            ..Default::default()
+        };
+        let run_result = self.run(&mut child_instance, blockchain);
+        self.gas_used += child_instance.gas_used;
+
+        match run_result {
+            Ok(()) if !child_instance.reverted => {
+                blockchain.set_code(&new_addr, child_instance.return_value.clone())?;
+                instance.stack.push(new_addr.into());
+            }
+            _ => {
+                if value > 0 {
+                    let _ = blockchain.transfer(&new_addr, &sender, value);
+                }
+                instance.return_data = child_instance.return_value.clone();
+                instance.stack.push(u256::ZERO);
+            }
+        }
+
+        Ok(())
+    }
+
+    fn derive_contract_addr(sender: IonicAddr, nonce: u64) -> IonicAddr {
+        let mut buf = Vec::new();
+        buf.extend_from_slice(sender.as_ref());
+        buf.extend_from_slice(&nonce.to_le_bytes());
+        let h = blake3::hash(&buf).as_bytes().to_owned();
+        h.into()
+    }
+
+}
+impl VMInstance {
+    fn pop_stack(&mut self) -> Result<u256, VMExecutionError> {
+        let Some(val) = self.stack.pop() else {
+            return Err(VMExecutionError::EmptyStack(self.pc, self.get_instr()));
+        };
+        Ok(val)
+    }
+
     fn eval_unary(&mut self, opcode: &IonicOpcode) -> Result<(), VMExecutionError> {
-        let a = self.pop_internal()?;
+        let a = self.pop_stack()?;
         match opcode {
             IonicOpcode::ISZERO => self.stack.push((a == 0).as_u256()),
             IonicOpcode::NOT => self.stack.push(a.not()),
@@ -337,9 +693,9 @@ impl VirtualMachine {
     }
 
     fn eval_ternary(&mut self, opcode: &IonicOpcode) -> Result<(), VMExecutionError> {
-        let c = self.pop_internal()?;
-        let b = self.pop_internal()?;
-        let a = self.pop_internal()?;
+        let c = self.pop_stack()?;
+        let b = self.pop_stack()?;
+        let a = self.pop_stack()?;
         let Some(addition) = (match opcode {
             IonicOpcode::ADDMOD => a.checked_add(b),
             IonicOpcode::MULMOD => a.checked_mul(b),
@@ -361,8 +717,8 @@ impl VirtualMachine {
 
     fn eval_binary(&mut self, opcode: &IonicOpcode) -> Result<(), VMExecutionError> {
         use IonicOpcode::*;
-        let b = self.pop_internal()?;
-        let a = self.pop_internal()?;
+        let b = self.pop_stack()?;
+        let a = self.pop_stack()?;
         let result_maybe = match opcode {
             ADD => a.checked_add(b),
             MUL => a.checked_mul(b),
@@ -492,8 +848,8 @@ impl VirtualMachine {
     }
 
     fn eval_hash(&mut self) -> Result<(), VMExecutionError> {
-        let len = self.pop_internal()?;
-        let ost = self.pop_internal()?;
+        let len = self.pop_stack()?;
+        let ost = self.pop_stack()?;
         let data = self.memory.mload8(ost, len);
         let hash: IonicHash = blake3::hash(&data).into();
         self.stack.push(hash.into());
@@ -504,56 +860,37 @@ impl VirtualMachine {
     }
 
     fn jump(&mut self) -> Result<(), VMExecutionError> {
-        let dest = self.pop_internal()?.as_usize();
-        if self.code[dest].opcode != IonicOpcode::JUMPDEST {
+        let dest = self.pop_stack()?.as_usize();
+        if self.instructions[dest].opcode != IonicOpcode::JUMPDEST {
             return Err(VMExecutionError::InvalidJumpDest(dest));
         }
         self.pc = dest;
         Ok(())
     }
 
-    fn tstore(&mut self) -> Result<(), VMExecutionError> {
-        if self.ctx.is_static {
-            return Err(VMExecutionError::StaticViolation(self.get_instr()));
-        }
-        let value = self.pop_internal()?;
-        let key_val = self.pop_internal()?;
-        self.tstorage.insert(key_val, value);
-        Ok(())
-    }
-
-    fn tload(&mut self) -> Result<(), VMExecutionError> {
-        let key = self.pop_internal()?;
-        let Some(value) = self.tstorage.get(&key) else {
-            return Err(VMExecutionError::TransiantKeyNotFound(key));
-        };
-        self.stack.push(*value);
-        Ok(())
-    }
-
     fn sload(&mut self, blockchian: &Blockchain) -> Result<(), VMExecutionError> {
-        let key = self.pop_internal()?;
+        let key = self.pop_stack()?;
         let value = blockchian
-            .sload(&self.ctx.address, &key.to_owned().into())
+            .sload(&self.address, &key.to_owned().into())
             .unwrap_or(&u256::ZERO);
         self.stack.push(*value);
         Ok(())
     }
 
     fn sstore(&mut self, blockchain: &mut Blockchain) -> Result<(), VMExecutionError> {
-        if self.ctx.is_static {
+        if self.is_static {
             return Err(VMExecutionError::StaticViolation(self.get_instr()));
         }
-        let value = self.pop_internal()?;
-        let key = self.pop_internal()?;
-        let _ = blockchain.sstore(&self.ctx.address, key.into(), value);
+        let value = self.pop_stack()?;
+        let key = self.pop_stack()?;
+        let _ = blockchain.sstore(&self.address, key.into(), value);
         Ok(())
     }
 
     fn mcpy(&mut self) -> Result<(), VMExecutionError> {
-        let len = self.pop_internal()?;
-        let ost = self.pop_internal()?;
-        let destost = self.pop_internal()?;
+        let len = self.pop_stack()?;
+        let ost = self.pop_stack()?;
+        let destost = self.pop_stack()?;
         let cost = self.memory.expantion_cost(destost, len);
         self.memory.mcopy(ost, len, destost);
         self.gas_used += cost;
@@ -561,8 +898,8 @@ impl VirtualMachine {
     }
 
     fn mstore8(&mut self) -> Result<(), VMExecutionError> {
-        let value = self.pop_internal()?;
-        let offset = self.pop_internal()?;
+        let value = self.pop_stack()?;
+        let offset = self.pop_stack()?;
         let cost = self.memory.expantion_cost(offset, 1.as_u256());
         self.memory.msotre8(offset, value);
         self.gas_used += cost;
@@ -570,8 +907,8 @@ impl VirtualMachine {
     }
 
     fn mstore(&mut self) -> Result<(), VMExecutionError> {
-        let value = self.pop_internal()?;
-        let offset = self.pop_internal()?;
+        let value = self.pop_stack()?;
+        let offset = self.pop_stack()?;
         let cost = self.memory.expantion_cost(offset, 32.as_u256());
         self.memory.mstore(offset, value);
         self.gas_used += cost;
@@ -579,14 +916,14 @@ impl VirtualMachine {
     }
 
     fn mload(&mut self) -> Result<(), VMExecutionError> {
-        let offset = self.pop_internal()?;
+        let offset = self.pop_stack()?;
         let value = self.memory.mload(offset);
         self.stack.push(value);
         Ok(())
     }
 
     fn jumpi(&mut self) -> Result<(), VMExecutionError> {
-        let cond = self.pop_internal()?;
+        let cond = self.pop_stack()?;
         if cond > 0 {
             self.jump()?;
         }
@@ -625,369 +962,12 @@ impl VirtualMachine {
     }
 
     fn pop(&mut self) -> Result<(), VMExecutionError> {
-        self.pop_internal()?;
+        self.pop_stack()?;
         Ok(())
-    }
-
-    fn pop_internal(&mut self) -> Result<u256, VMExecutionError> {
-        let Some(val) = self.stack.pop() else {
-            return Err(VMExecutionError::EmptyStack(self.pc, self.get_instr()));
-        };
-        Ok(val)
-    }
-
-    fn log(&mut self, num_topics: u8) -> Result<(), VMExecutionError> {
-        if self.ctx.is_static {
-            return Err(VMExecutionError::StaticViolation(self.get_instr()));
-        }
-        let len = self.pop_internal()?;
-        let ost = self.pop_internal()?;
-        let data = self.memory.mload8(ost, len);
-        let mut topics = Vec::new();
-        for _ in 0..num_topics {
-            let topic = self.pop_internal()?;
-            topics.push(topic);
-        }
-        let log = IonicLog {
-            address: self.ctx.address,
-            topics,
-            data,
-        };
-        self.ctx.logs.push(log);
-        Ok(())
-    }
-
-    fn call(&mut self, block: &Block, blockchain: &mut Blockchain) -> Result<(), VMExecutionError> {
-        let out_size = self.pop_internal()?;
-        let out_offset = self.pop_internal()?;
-        let in_size = self.pop_internal()?;
-        let in_offset = self.pop_internal()?;
-        let value = self.pop_internal()?;
-        let to: IonicAddr = self.pop_internal()?.into();
-        let gas = self.pop_internal()?;
-
-        let call_frame = CallFrame {
-            gas: gas.as_u64(),
-            recepient: to,
-            value,
-            in_offset,
-            in_size,
-            out_offset,
-            out_size,
-            code_addr: to,
-            ctx_addr: to,
-            caller: self.ctx.address,
-            call_value: value,
-            is_static: false,
-            transfer_value: true,
-        };
-        self.perform_call(block, blockchain, call_frame)
-    }
-
-    fn callcode(
-        &mut self,
-        block: &Block,
-        blockchain: &mut Blockchain,
-    ) -> Result<(), VMExecutionError> {
-        let out_size = self.pop_internal()?;
-        let out_offset = self.pop_internal()?;
-        let in_size = self.pop_internal()?;
-        let in_offset = self.pop_internal()?;
-        let value = self.pop_internal()?;
-        let to: IonicAddr = self.pop_internal()?.into();
-        let gas = self.pop_internal()?;
-
-        let call_frame = CallFrame {
-            gas: gas.as_u64(),
-            recepient: to,
-            value,
-            in_offset,
-            in_size,
-            out_offset,
-            out_size,
-            code_addr: to,
-            ctx_addr: self.ctx.address,
-            caller: self.ctx.address,
-            call_value: value,
-            is_static: false,
-            transfer_value: false,
-        };
-        self.perform_call(block, blockchain, call_frame)
-    }
-    fn ret(&mut self) -> Result<(), VMExecutionError> {
-        let len = self.pop_internal()?;
-        let offset = self.pop_internal()?;
-        self.return_value = self.memory.mload8(offset, len);
-        self.stopped = true;
-        Ok(())
-    }
-    fn delegatecall(
-        &mut self,
-        block: &Block,
-        blockchain: &mut Blockchain,
-    ) -> Result<(), VMExecutionError> {
-        let out_size = self.pop_internal()?;
-        let out_offset = self.pop_internal()?;
-        let in_size = self.pop_internal()?;
-        let in_offset = self.pop_internal()?;
-        let to: IonicAddr = self.pop_internal()?.into();
-        let gas = self.pop_internal()?;
-
-        let call_frame = CallFrame {
-            gas: gas.as_u64(),
-            recepient: to,
-            value: u256::ZERO,
-            in_offset,
-            in_size,
-            out_offset,
-            out_size,
-            code_addr: to,
-            ctx_addr: to,
-            caller: self.ctx.address,
-            call_value: u256::ZERO,
-            is_static: true,
-            transfer_value: false,
-        };
-
-        self.perform_call(block, blockchain, call_frame)
-    }
-    fn create(
-        &mut self,
-        block: &Block,
-        blockchain: &mut Blockchain,
-    ) -> Result<(), VMExecutionError> {
-        let size = self.pop_internal()?;
-        let offset = self.pop_internal()?;
-        let value = self.pop_internal()?;
-        let init_code = self.memory.mload8(offset, size);
-        self.create_contract(value, init_code, None, block, blockchain)
-    }
-    fn create2(
-        &mut self,
-        block: &Block,
-        blockchain: &mut Blockchain,
-    ) -> Result<(), VMExecutionError> {
-        let salt = self.pop_internal()?;
-        let len = self.pop_internal()?;
-        let offset = self.pop_internal()?;
-        let value = self.pop_internal()?;
-        let init_code = self.memory.mload8(offset, len);
-        self.create_contract(value, init_code, Some(salt), block, blockchain)
-    }
-    fn staticcall(
-        &mut self,
-        block: &Block,
-        blockchain: &mut Blockchain,
-    ) -> Result<(), VMExecutionError> {
-        let out_size = self.pop_internal()?;
-        let out_offset = self.pop_internal()?;
-        let in_size = self.pop_internal()?;
-        let in_offset = self.pop_internal()?;
-        let to: IonicAddr = self.pop_internal()?.into();
-        let gas = self.pop_internal()?;
-
-        let call_frame = CallFrame {
-            gas: gas.as_u64(),
-            recepient: to,
-            value: u256::ZERO,
-            in_offset,
-            in_size,
-            out_offset,
-            out_size,
-            code_addr: to,
-            ctx_addr: to,
-            caller: self.ctx.address,
-            call_value: u256::ZERO,
-            is_static: true,
-            transfer_value: false,
-        };
-
-        self.perform_call(block, blockchain, call_frame)
-    }
-    fn revert(&mut self) -> Result<(), VMExecutionError> {
-        let size = self.pop_internal()?;
-        let offset = self.pop_internal()?;
-        self.return_value = self.memory.mload8(offset, size);
-        self.reverted = true;
-        self.stopped = true;
-        Ok(())
-    }
-    fn selfdestruct(&mut self, blockchain: &mut Blockchain) -> Result<(), VMExecutionError> {
-        if self.ctx.is_static {
-            return Err(VMExecutionError::StaticViolation(self.get_instr()));
-        }
-
-        let beneficiary: IonicAddr = self.pop_internal()?.into();
-        let bal = blockchain
-            .balance(&self.ctx.address)
-            .unwrap_or_default();
-
-        if bal > 0 {
-            blockchain.transfer(&self.ctx.address, &beneficiary, bal)?;
-        }
-
-        blockchain.selfdestruct(&self.ctx.address);
-        self.stopped = true;
-        Ok(())
-    }
-
-    fn perform_call(
-        &mut self,
-        block: &Block,
-        blockchain: &mut Blockchain,
-        frame: CallFrame,
-    ) -> Result<(), VMExecutionError> {
-        if self.call_depth >= MAX_CALL_DEPTH {
-            self.stack.push(u256::ZERO);
-            return Ok(());
-        }
-        if self.ctx.is_static && frame.value > 0 {
-            return Err(VMExecutionError::StaticViolation(self.get_instr()));
-        }
-        let value = frame.value;
-        let call_value = frame.call_value;
-
-        if value > 0 {
-            if blockchain
-                .balance(&self.ctx.address)
-                .unwrap_or_default()
-                < value
-            {
-                self.stack.push(u256::ZERO);
-                return Ok(());
-            }
-            if frame.transfer_value {
-                let _ = blockchain.transfer(&self.ctx.address, &frame.recepient, value);
-            }
-        }
-
-        let code = blockchain.code(&frame.code_addr).unwrap_or_default();
-
-        if code.is_empty() {
-            self.stack.push(u256::ONE);
-            return Ok(());
-        }
-
-        let input = self.memory.mload8(frame.in_offset, frame.in_size);
-
-        let ctx = ExecutionContext {
-            address: frame.ctx_addr,
-            origin: self.ctx.origin,
-            caller: frame.caller,
-            call_value,
-            gas_price: self.ctx.gas_price,
-            nonce: self.ctx.nonce,
-            calldata: input,
-            logs: Vec::new(),
-            return_data: Vec::new(),
-            is_static: frame.is_static,
-        };
-        let mut child = Self::new_child_with_ctx(self, ctx);
-        child.load(&code)?;
-        let run_result = child.run(block, blockchain);
-        self.gas_used += child.gas_used;
-        self.ctx.return_data = child.return_value.clone();
-        match run_result {
-            Ok(()) if !child.reverted => {
-                // child.apply(blockchain);
-                self.ctx.logs.extend(child.ctx.logs);
-                self.tstorage.extend(child.tstorage);
-
-                self.memory.write_padded(
-                    frame.out_offset,
-                    frame.out_size,
-                    u256::ZERO,
-                    &child.return_value,
-                );
-                self.stack.push(u256::ONE);
-            }
-            _ => {
-                if frame.transfer_value && value > 0 {
-                    let _ = blockchain.transfer(&frame.recepient, &self.ctx.address, value);
-                    self.stack.push(u256::ZERO);
-                }
-            }
-        }
-        Ok(())
-    }
-
-    fn create_contract(
-        &mut self,
-        value: u256,
-        init_code: Vec<u8>,
-        salt: Option<u256>,
-        block: &Block,
-        blockchain: &mut Blockchain,
-    ) -> Result<(), VMExecutionError> {
-        if self.ctx.is_static {
-            return Err(VMExecutionError::StaticViolation(self.get_instr()));
-        }
-
-        if self.call_depth >= MAX_CALL_DEPTH {
-            self.stack.push(u256::ZERO);
-            return Ok(());
-        }
-
-        let sender = self.ctx.address;
-
-        if blockchain.balance(&sender).unwrap_or_default() < value {
-            self.stack.push(u256::ZERO);
-            return Ok(());
-        }
-
-        // TODO: implement proper address derivation for your chain.
-        let new_addr: IonicAddr = if let Some(salt) = salt {
-            let code_hash = blake3::hash(&init_code);
-            let mut buf = Vec::with_capacity(1 + 20 + 32 + 32);
-            buf.push(0xff);
-            buf.extend_from_slice(sender.as_ref());
-            buf.extend_from_slice(&salt.to_le_bytes());
-            buf.extend_from_slice(code_hash.as_bytes());
-            let h = blake3::hash(&buf).as_bytes().to_owned();
-            h.into()
-        } else {
-            self.derive_contract_addr(sender, self.ctx.nonce)
-        };
-
-        if value > 0 {
-            blockchain.transfer(&sender, &new_addr, value)?;
-        }
-
-        let mut child = Self::new_child(self, new_addr, value);
-        child.load(&init_code)?;
-
-        let run_result = child.run(block, blockchain);
-        self.gas_used += child.gas_used;
-
-        match run_result {
-            Ok(()) if !child.reverted => {
-                blockchain.set_code(&new_addr, child.return_value.clone())?;
-                self.tstorage.extend(child.tstorage.iter());
-                self.ctx.logs.extend(child.ctx.logs);
-                self.stack.push(new_addr.into());
-            }
-            _ => {
-                if value > 0 {
-                    let _ = blockchain.transfer(&new_addr, &sender, value);
-                }
-                self.ctx.return_data = child.return_value.clone();
-                self.stack.push(u256::ZERO);
-            }
-        }
-
-        Ok(())
-    }
-
-    fn derive_contract_addr(&self, sender: IonicAddr, nonce: u64) -> IonicAddr {
-        let mut buf = Vec::new();
-        buf.extend_from_slice(sender.as_ref());
-        buf.extend_from_slice(&nonce.to_le_bytes());
-        let h = blake3::hash(&buf).as_bytes().to_owned();
-        h.into()
     }
 
     fn get_instr(&self) -> IonicInstr {
-        self.code[self.pc]
+        self.instructions[self.pc]
     }
 }
 

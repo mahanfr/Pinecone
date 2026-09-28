@@ -1,3 +1,4 @@
+# MVP
 [X] Cryptographic primitives and identities
 [X] Transactions
 [X] Blocks and block headers
@@ -8,16 +9,17 @@
 [X] State model
 [X] Mempool
 [X] Block/transaction propagation
-[ ] Virtual machine / smart contracts
+[X] Virtual machine / smart contracts
 [ ] Chain validation and fork choice
 [ ] Consensus
 [ ] Peer-to-peer networking
 [ ] Persistent blockchain storage
 [ ] State synchronization
-[ ] Fees / gas
+[ ] Light clients / Merkle proofs
+
+# Production
 [ ] DoS protection
 [ ] Encryption / private data mechanisms
-[ ] Light clients / Merkle proofs
 [ ] Wallet/key management
 [ ] Networking security
 [ ] Testing, fuzzing, formal verification

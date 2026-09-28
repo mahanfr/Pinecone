@@ -1,18 +1,12 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::VecDeque,
     fmt::Display,
 };
 
 use ethnum::u256;
 
 use crate::{
-    accounts::Account,
-    blocks::Block,
-    merkletrie::SparseMerkleTrie,
-    state::IonicState,
-    transactions::TransactionError,
-    types::{IonicAddr, IonicHash, IonicPK},
-    vm::VMExecutionError,
+    accounts::Account, blocks::Block, merkletrie::SparseMerkleTrie, state::IonicState, transactions::TransactionError, types::{IonicAddr, IonicHash, IonicPK}, vm::VMExecutionError
 };
 
 #[derive(Debug)]
@@ -20,7 +14,6 @@ pub struct Blockchain {
     pub id: u64,
     pub chain: VecDeque<Block>,
     pub state: IonicState,
-    pub cache: HashMap<IonicAddr, Account>,
 }
 
 impl Blockchain {
@@ -31,7 +24,6 @@ impl Blockchain {
             id: chain_id,
             chain,
             state: IonicState::new(chain_id),
-            cache: HashMap::new(),
         }
     }
 
@@ -44,7 +36,6 @@ impl Blockchain {
             storage: SparseMerkleTrie::new(),
         };
         self.state.add_account(addr, account.clone());
-        self.cache.insert(addr, account);
     }
 
     pub fn verify_block(&self, block: &Block) -> Result<(), BlockchainError> {
