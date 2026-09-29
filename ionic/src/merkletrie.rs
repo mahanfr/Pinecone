@@ -126,7 +126,7 @@ impl<T: Clone + ToBytes> MerkleNode<T> {
             let hash = leaf_hash(key, &value.to_bytes());
             let prev = match self {
                 Self::Empty | Self::Branch(_) => None,
-                Self::Leaf(l) => Some(l.value.clone())
+                Self::Leaf(l) => Some(l.value.clone()),
             };
             *self = MerkleNode::Leaf(MerkleNodeLeaf { hash, value });
             return prev;
@@ -178,8 +178,8 @@ impl<T: Clone + ToBytes> MerkleNode<T> {
                 MerkleNode::Leaf(l) => {
                     let value = l.value.clone();
                     *self = MerkleNode::Empty;
-                    return (Some(value), true)
-                },
+                    return (Some(value), true);
+                }
                 _ => return (None, false),
             }
         }

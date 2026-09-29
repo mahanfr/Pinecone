@@ -1,9 +1,18 @@
-use std::{collections::{HashMap, VecDeque}, fmt::Display};
+use std::{
+    collections::{HashMap, VecDeque},
+    fmt::Display,
+};
 
 use ethnum::u256;
 
 use crate::{
-    accounts::Account, blocks::Block, journal::{Journal, Snapshot}, merkletrie::SparseMerkleTrie, state::IonicState, transactions::TransactionError, types::{IonicAddr, IonicHash, IonicPK}
+    accounts::Account,
+    blocks::Block,
+    journal::{Journal, Snapshot},
+    merkletrie::SparseMerkleTrie,
+    state::IonicState,
+    transactions::TransactionError,
+    types::{IonicAddr, IonicHash, IonicPK},
 };
 
 #[derive(Debug)]
@@ -29,7 +38,7 @@ impl Blockchain {
     }
 
     pub fn apply(&mut self) {
-        self.journal.clear();
+        self.journal.commit();
     }
 
     pub fn revert(&mut self, sn: Snapshot) {
@@ -110,7 +119,7 @@ impl Blockchain {
                 *ac = account;
                 true
             }
-            Err(_) => false
+            Err(_) => false,
         }
     }
 
@@ -133,11 +142,7 @@ impl Blockchain {
         self.state.get_account(addr).ok().map(|ac| ac.code.clone())
     }
 
-    pub fn set_code(
-        &mut self,
-        new_addr: &IonicAddr,
-        code: Vec<u8>,
-    ) -> bool {
+    pub fn set_code(&mut self, new_addr: &IonicAddr, code: Vec<u8>) -> bool {
         match self.state.get_mut_account(new_addr) {
             Ok(acc) => {
                 self.journal.code_changed(*new_addr, acc.code.clone());
@@ -148,20 +153,19 @@ impl Blockchain {
         }
     }
 
-    pub fn transfer(
-        &mut self,
-        sender: &IonicAddr,
-        new_addr: &IonicAddr,
-        value: u256,
-    ) -> bool {
+    pub fn transfer(&mut self, sender: &IonicAddr, new_addr: &IonicAddr, value: u256) -> bool {
         if let Some(ac) = self.state.get_mut_account(sender).ok() {
             self.journal.balance_changed(*sender, ac.balance);
             ac.balance -= value;
-        } else {return false;}
+        } else {
+            return false;
+        }
         if let Some(ac) = self.state.get_mut_account(new_addr).ok() {
             self.journal.balance_changed(*new_addr, ac.balance);
             ac.balance += value;
-        } else {return false;}
+        } else {
+            return false;
+        }
         true
     }
 
@@ -170,7 +174,7 @@ impl Blockchain {
             Some(prev) => {
                 self.journal.account_destroyed(*addr, Box::new(prev));
                 true
-            },
+            }
             None => false,
         }
     }
@@ -183,12 +187,7 @@ impl Blockchain {
         }
     }
 
-    pub fn sstore(
-        &mut self,
-        addr: &IonicAddr,
-        key: u256,
-        value: u256,
-    ) -> bool {
+    pub fn sstore(&mut self, addr: &IonicAddr, key: u256, value: u256) -> bool {
         let nkey = key.to_le_bytes();
         if let Ok(ac) = self.state.get_mut_account(addr) {
             let prev = ac.storage.insert(&nkey, value);

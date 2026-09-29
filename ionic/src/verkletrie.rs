@@ -208,7 +208,7 @@ impl<T: Clone + ToBytes> VerkleNode<T> {
                 VerkleNode::Leaf(l) => {
                     let value = l.value.clone();
                     *self = VerkleNode::Empty;
-                    return (Some(value), true)
+                    return (Some(value), true);
                 }
                 _ => return (None, false),
             }

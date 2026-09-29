@@ -1,10 +1,5 @@
+use crate::{accounts::Account, state::IonicState, types::IonicAddr};
 use ethnum::u256;
-
-use crate::{
-    accounts::Account,
-    state::IonicState,
-    types::{IonicAddr},
-};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Snapshot(usize);
@@ -32,11 +27,10 @@ enum JournalEntry {
     },
     StateStorageChanaged {
         addr: IonicAddr,
-        key: [u8;32],
+        key: [u8; 32],
         prev: Option<u256>,
     },
 }
-
 
 #[derive(Debug, Default, Clone)]
 pub struct Journal {
@@ -48,10 +42,6 @@ impl Journal {
         Self::default()
     }
 
-    pub fn clear(&mut self) {
-        self.entries.clear();
-    }
-
     pub fn record(&self) -> Snapshot {
         Snapshot(self.entries.len())
     }
@@ -60,7 +50,8 @@ impl Journal {
         self.entries.push(JournalEntry::NonceChanged { addr, prev });
     }
     pub fn balance_changed(&mut self, addr: IonicAddr, prev: u256) {
-        self.entries.push(JournalEntry::BalanceChanged { addr, prev });
+        self.entries
+            .push(JournalEntry::BalanceChanged { addr, prev });
     }
     pub fn code_changed(&mut self, addr: IonicAddr, prev: Vec<u8>) {
         self.entries.push(JournalEntry::CodeChanged { addr, prev });
@@ -69,10 +60,12 @@ impl Journal {
         self.entries.push(JournalEntry::AccountCreated { addr });
     }
     pub fn account_destroyed(&mut self, addr: IonicAddr, account: Box<Account>) {
-        self.entries.push(JournalEntry::AccountDestroyed { addr, account });
+        self.entries
+            .push(JournalEntry::AccountDestroyed { addr, account });
     }
-    pub fn storage_chanaged(&mut self, addr: IonicAddr, key: [u8;32], prev: Option<u256>) {
-        self.entries.push(JournalEntry::StateStorageChanaged { addr, key, prev });
+    pub fn storage_chanaged(&mut self, addr: IonicAddr, key: [u8; 32], prev: Option<u256>) {
+        self.entries
+            .push(JournalEntry::StateStorageChanaged { addr, key, prev });
     }
 
     pub fn revert(&mut self, snap: Snapshot, state: &mut IonicState) {
