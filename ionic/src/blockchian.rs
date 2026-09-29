@@ -154,13 +154,13 @@ impl Blockchain {
     }
 
     pub fn transfer(&mut self, sender: &IonicAddr, new_addr: &IonicAddr, value: u256) -> bool {
-        if let Some(ac) = self.state.get_mut_account(sender).ok() {
+        if let Ok(ac) = self.state.get_mut_account(sender) {
             self.journal.balance_changed(*sender, ac.balance);
             ac.balance -= value;
         } else {
             return false;
         }
-        if let Some(ac) = self.state.get_mut_account(new_addr).ok() {
+        if let Ok(ac) = self.state.get_mut_account(new_addr) {
             self.journal.balance_changed(*new_addr, ac.balance);
             ac.balance += value;
         } else {

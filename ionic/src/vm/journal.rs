@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::vm::{VirtualMachine, logs::IonicLog};
+use crate::vm::logs::IonicLog;
 use ethnum::u256;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

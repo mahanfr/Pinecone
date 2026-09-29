@@ -167,7 +167,7 @@ impl<T: Clone + ToBytes> VerkleNode<T> {
                     .insert(key, depth + 1, value);
             }
         }
-        return None;
+        None
     }
 
     pub fn get_mut(&mut self, key: &[u8; 32], depth: usize) -> Option<&mut T> {

@@ -93,7 +93,7 @@ impl VirtualMachine {
             state_snapshot: blockchain.journal.record(),
             ..Default::default()
         };
-        vm.block = block.header.clone();
+        vm.block = block.header;
         vm.run(&mut instance, blockchain)
     }
 
@@ -364,7 +364,7 @@ impl VirtualMachine {
         }
         let value = instance.pop_stack()?;
         let key = instance.pop_stack()?;
-        blockchain.sstore(&instance.address, key.into(), value);
+        blockchain.sstore(&instance.address, key, value);
         Ok(())
     }
 
@@ -562,11 +562,10 @@ impl VirtualMachine {
             .get_balance(&instance.address)
             .unwrap_or_default();
 
-        if bal > 0 {
-            if !blockchain.transfer(&instance.address, &beneficiary, bal) {
+        if bal > 0
+            && !blockchain.transfer(&instance.address, &beneficiary, bal) {
                 return Err(VMExecutionError::UnknownAccount);
             }
-        }
 
         blockchain.selfdestruct(&instance.address);
         instance.stopped = true;
@@ -621,7 +620,7 @@ impl VirtualMachine {
             gas_price: instance.gas_price,
             instructions: Self::parse(&code)?,
             calldata: input,
-            code: code,
+            code,
             is_static: frame.is_static,
             state_snapshot: blockchain.journal.record(),
             vm_snapshot: self.vm_journal.record(&self.logs),
@@ -695,11 +694,10 @@ impl VirtualMachine {
             Self::derive_contract_addr(sender, instance.nonce)
         };
 
-        if value > 0 {
-            if !blockchain.transfer(&sender, &new_addr, value) {
+        if value > 0
+            && !blockchain.transfer(&sender, &new_addr, value) {
                 return Err(VMExecutionError::UnknownAccount);
             }
-        }
 
         let mut child_instance = VMInstance {
             address: new_addr,
