@@ -61,7 +61,7 @@ impl Blockchain {
         let Some(head) = self.head() else {
             return Err(BlockchainError::EmptyChain);
         };
-        block.validate_basic(&head.header);
+        block.validate_basic(&head.header)?;
         for tx in block.transactions.iter() {
             if head.header.chain_id != tx.chain_id {
                 return Err(BlockchainError::InvalidChainId);
@@ -203,6 +203,13 @@ impl Blockchain {
 pub enum BlockchainError {
     EmptyChain,
     InvalidChainId,
+    InvalidSignature,
+    InvalidPK,
+    UnsupportedVersion,
+    InvalidParentHeight,
+    HashMissmatch,
+    InvaldRootHash,
+    InvaldStateHash,
     TxExecutionError(TransactionError),
 }
 impl Display for BlockchainError {
@@ -211,6 +218,13 @@ impl Display for BlockchainError {
             Self::EmptyChain => write!(f, "Empty Chain: verifier needs to have the latest chian"),
             Self::InvalidChainId => write!(f, "Invalid Chain: transactions are not for this chain"),
             Self::TxExecutionError(txe) => write!(f, "<Blockchain Error> {txe}"),
+            Self::InvalidSignature =>  write!(f, "Empty Signature: The Block has not been signed"),
+            Self::InvalidPK =>  write!(f, "preposer has not a valid public key"),
+            Self::UnsupportedVersion =>  write!(f, "header is on unsupported version"),
+            Self::InvalidParentHeight =>  write!(f, "parent is at the same height or higher than the child"),
+            Self::HashMissmatch =>  write!(f, "parent hash dose not match the blocks pervious hash"),
+            Self::InvaldRootHash =>  write!(f, "the block Tx root dose not match the expected root"),
+            Self::InvaldStateHash =>  write!(f, "the block Tx state dose not match the expected state"),
         }
     }
 }

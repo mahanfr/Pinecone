@@ -350,7 +350,9 @@ impl VirtualMachine {
     ) -> Result<(), VMExecutionError> {
         let key = instance.pop_stack()?;
         let slot: IonicHash = key.into();
-        instance.gas_used += self.access.warm_slot(&instance.address, &slot);
+        if !instance.is_static {
+            instance.gas_used += self.access.warm_slot(&instance.address, &slot);
+        }
         let value = blockchian
             .sload(&instance.address, &key.to_owned().into())
             .unwrap_or(&u256::ZERO);

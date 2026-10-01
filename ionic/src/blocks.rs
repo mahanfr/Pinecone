@@ -1,11 +1,8 @@
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use ethnum::{AsU256, u256};
-use log::{error, warn};
 
 use crate::{
-    transactions::{Transaction, transactions_root},
-    types::{BlockPos, IonicHash, IonicPK, IonicTXSignature},
-    utils::{ToBytes, current_timestamp},
+    blockchian::BlockchainError, transactions::{Transaction, transactions_root}, types::{BlockPos, IonicHash, IonicPK, IonicTXSignature}, utils::{ToBytes, current_timestamp}
 };
 
 const BLOCK_DOMAIN: &[u8] = b"IONIC_BLOCK";
@@ -58,50 +55,40 @@ impl Block {
         self
     }
 
-    fn validate_signature(&self) -> bool {
+    pub fn validate_signature(&self) -> Result<(), BlockchainError> {
         if self.signature.is_empty() {
-            error!("Empty Signature: The Block has not been signed");
-            return false;
+            return Err(BlockchainError::InvalidSignature);
         }
         let pk: VerifyingKey = match &self.header.proposer.try_into() {
             Ok(key) => *key,
             Err(_) => {
-                error!("preposer has not a valid public key");
-                return false;
+                return Err(BlockchainError::InvalidPK);
             }
         };
         let hash = self.header.hash();
         pk.verify(hash.as_ref(), &Signature::from_bytes(&self.signature))
-            .is_ok()
+            .map_err(|_| BlockchainError::InvalidSignature)
     }
 
-    pub fn validate_basic(&self, parent: &BlockHeader) -> bool {
-        if !self.validate_signature() {
-            warn!("signature is invalid");
-            return false;
-        }
+    pub fn validate_basic(&self, parent: &BlockHeader) -> Result<(), BlockchainError> {
+        self.validate_signature()?;
         if self.header.version != 1 {
-            warn!("header is on unsupported version");
-            return false;
+            return Err(BlockchainError::UnsupportedVersion);
         }
         if self.header.position.height != parent.position.height + 1 {
-            warn!("parent is at the same height or higher than the child");
-            return false;
+            return Err(BlockchainError::InvalidParentHeight);
         }
         if self.header.previous_hash != parent.hash() {
-            warn!("parent hash dose not match the blocks pervious hash");
-            return false;
+            return Err(BlockchainError::HashMissmatch);
         }
         let expexted_root = transactions_root(&self.transactions);
         if self.header.transactions_root != expexted_root {
-            warn!("the block Tx root dose not match the expected root");
-            return false;
+            return Err(BlockchainError::InvaldRootHash);
         }
-        true
+        Ok(())
     }
 
     pub fn hash(&self) -> IonicHash {
-        assert_ne!(self.signature, [0u8; 64]);
         let mut data = Vec::new();
         data.extend_from_slice(BLOCK_DOMAIN);
         data.extend_from_slice(self.header.hash().as_ref());
@@ -110,20 +97,7 @@ impl Block {
     }
 
     pub fn next_base_fee(&self) -> u256 {
-        let last_block_header = self.header;
-        let current_base_fee = last_block_header.base_fee;
-        let gas_target = last_block_header.gas_limit / 2;
-        if gas_target == 0 {
-            return current_base_fee;
-        }
-        // base_fee(N) * (gas_used(N) - gas_target(N)) / (gas_target(N) * 8)
-        let inflaition = current_base_fee
-            * ((last_block_header.gas_used - gas_target) / gas_target * 8).as_u256();
-        let base_fee = current_base_fee + inflaition;
-        if base_fee < 1 {
-            return u256::ONE;
-        }
-        base_fee
+        self.header.next_base_fee()
     }
 
     pub fn get_tx(&self, index: usize) -> Option<&Transaction> {
@@ -173,4 +147,23 @@ impl BlockHeader {
         data.extend_from_slice(&self.encode());
         blake3::hash(&data).into()
     }
+
+
+    pub fn next_base_fee(&self) -> u256 {
+        let current = self.base_fee;
+        let target = self.gas_limit / 2;
+        if target == 0 || self.gas_used == target {
+            return current;
+        }
+         if self.gas_used > target {
+            let delta = u256::from(self.gas_used - target);
+            let change = current * delta / u256::from(target) / 8.as_u256();
+            (current + change).max(u256::ONE)
+        } else {
+            let delta = u256::from(target - self.gas_used);
+            let change = current * delta / u256::from(target) / 8.as_u256();
+            if current > change { current - change } else { u256::ONE }
+        }
+    }
+
 }

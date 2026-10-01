@@ -13,4 +13,5 @@ pub mod transactions;
 pub mod types;
 pub mod utils;
 pub mod verkletrie;
+pub mod blocktree;
 pub mod vm;
