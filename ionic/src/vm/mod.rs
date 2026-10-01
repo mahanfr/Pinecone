@@ -9,20 +9,14 @@ use std::{collections::HashMap, error::Error, fmt::Display, ops::Not};
 use ethnum::{AsU256, u256};
 
 use crate::{
-    blockchian::Blockchain,
-    blocks::{Block, BlockHeader},
-    journal::{Journal, Snapshot},
-    transactions::TransactionError,
-    types::{IonicAddr, IonicHash},
-    utils::ToBytes,
-    vm::{
+    access::AccessList, blockchian::Blockchain, blocks::{Block, BlockHeader}, journal::{Journal, Snapshot}, transactions::TransactionError, types::{IonicAddr, IonicHash}, utils::ToBytes, vm::{
         callframe::CallFrame,
         instructions::IonicInstr,
         journal::{VMJournal, VMSnapshot},
         logs::IonicLog,
         memory::IonicMemory,
         opcodes::IonicOpcode,
-    },
+    }
 };
 
 const MAX_CALL_DEPTH: u32 = 1024;
@@ -36,6 +30,7 @@ pub struct VirtualMachine {
     pub logs: Vec<IonicLog>,
     pub journal: Journal,
     pub vm_journal: VMJournal,
+    pub access: AccessList,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -93,6 +88,9 @@ impl VirtualMachine {
             state_snapshot: blockchain.journal.record(),
             ..Default::default()
         };
+        vm.access.reset();
+        vm.access.pre_warm_account(&sender_addr);
+        vm.access.pre_warm_account(&instance.address);
         vm.block = block.header;
         vm.run(&mut instance, blockchain)
     }
@@ -137,11 +135,14 @@ impl VirtualMachine {
                 HASH => instance.eval_hash()?,
                 ADDRESS => instance.address(instance.address),
                 BALANCE => {
-                    let addr = instance.pop_stack()?;
-                    instance.gas_used += 2100;
-                    instance.balance(addr.into(), blockchain)?
+                    let addr = instance.pop_stack()?.into();
+                    instance.gas_used += self.access.warm_account(&addr);
+                    instance.balance(addr, blockchain)?
                 }
-                SELFBALANCE => instance.balance(instance.address, blockchain)?,
+                SELFBALANCE => {
+                    instance.gas_used += self.access.warm_account(&instance.address);
+                    instance.balance(instance.address, blockchain)?
+                }
                 BASEFEE => {
                     instance.stack.push(blockchain.base_fee().as_u256());
                 }
@@ -202,9 +203,9 @@ impl VirtualMachine {
                     instance.gas_used += cost;
                 }
                 EXTCODESIZE => {
-                    let addr = instance.pop_stack()?;
-                    instance.gas_used += 2100;
-                    let code = blockchain.get_code(&addr.into()).unwrap_or_default();
+                    let addr = instance.pop_stack()?.into();
+                    instance.gas_used += self.access.warm_account(&addr);
+                    let code = blockchain.get_code(&addr).unwrap_or_default();
                     instance.stack.push(code.len().as_u256());
                 }
                 EXTCODECOPY => {
@@ -212,16 +213,17 @@ impl VirtualMachine {
                     let ost = instance.pop_stack()?;
                     let destost = instance.pop_stack()?;
                     let addr = instance.pop_stack()?;
-                    instance.gas_used += 2100;
+                    let addr: IonicAddr = addr.into();
+                    instance.gas_used += self.access.warm_account(&addr);
                     let code = blockchain.get_code(&addr.into()).unwrap_or_default();
                     let cost = instance.memory.expantion_cost(destost, len);
                     instance.memory.write_padded(destost, len, ost, &code);
                     instance.gas_used += cost;
                 }
                 EXTCODEHASH => {
-                    let addr = instance.pop_stack()?;
-                    instance.gas_used += 2100;
-                    let code = blockchain.get_code(&addr.into()).unwrap_or_default();
+                    let addr = instance.pop_stack()?.into();
+                    instance.gas_used += self.access.warm_account(&addr);
+                    let code = blockchain.get_code(&addr).unwrap_or_default();
                     let hash: IonicHash = blake3::hash(&code).into();
                     instance.stack.push(hash.into());
                 }
@@ -317,7 +319,7 @@ impl VirtualMachine {
                 PREVRANDAO => todo!(),
             }
             instance.pc += 1;
-            self.gas_used += instr.opcode.gas().unwrap_or_default();
+            instance.gas_used += instr.opcode.gas().unwrap_or_default();
         }
         Ok(())
     }
@@ -347,6 +349,8 @@ impl VirtualMachine {
         blockchian: &Blockchain,
     ) -> Result<(), VMExecutionError> {
         let key = instance.pop_stack()?;
+        let slot: IonicHash = key.into();
+        instance.gas_used += self.access.warm_slot(&instance.address, &slot);
         let value = blockchian
             .sload(&instance.address, &key.to_owned().into())
             .unwrap_or(&u256::ZERO);
@@ -364,6 +368,7 @@ impl VirtualMachine {
         }
         let value = instance.pop_stack()?;
         let key = instance.pop_stack()?;
+        instance.gas_used += self.access.warm_slot(&instance.address, &key.into());
         blockchain.sstore(&instance.address, key, value);
         Ok(())
     }
@@ -376,6 +381,8 @@ impl VirtualMachine {
         let ost = instance.pop_stack()?;
         let data = instance.memory.mload8(ost, len);
         let mut topics = Vec::new();
+        let memory_cost = instance.memory.expantion_cost(ost, len);
+        instance.gas_used = 375 * num_topics as u64 + 8 * (len + 31 /32).as_u64() + memory_cost;
         for _ in 0..num_topics {
             let topic = instance.pop_stack()?;
             topics.push(topic);
@@ -402,6 +409,7 @@ impl VirtualMachine {
         let to: IonicAddr = instance.pop_stack()?.into();
         let gas = instance.pop_stack()?;
 
+        instance.gas_used += self.access.warm_account(&to);
         let call_frame = CallFrame {
             gas: gas.as_u64(),
             recepient: to,
@@ -433,6 +441,7 @@ impl VirtualMachine {
         let to: IonicAddr = instance.pop_stack()?.into();
         let gas = instance.pop_stack()?;
 
+        instance.gas_used += self.access.warm_account(&to);
         let call_frame = CallFrame {
             gas: gas.as_u64(),
             recepient: to,
@@ -454,6 +463,7 @@ impl VirtualMachine {
         let len = instance.pop_stack()?;
         let offset = instance.pop_stack()?;
         instance.return_value = instance.memory.mload8(offset, len);
+        instance.gas_used += instance.memory.expantion_cost(offset, len);
         instance.stopped = true;
         Ok(())
     }
@@ -469,6 +479,7 @@ impl VirtualMachine {
         let to: IonicAddr = instance.pop_stack()?.into();
         let gas = instance.pop_stack()?;
 
+        instance.gas_used += self.access.warm_account(&to);
         let call_frame = CallFrame {
             gas: gas.as_u64(),
             recepient: to,
@@ -522,6 +533,7 @@ impl VirtualMachine {
         let to: IonicAddr = instance.pop_stack()?.into();
         let gas = instance.pop_stack()?;
 
+        instance.gas_used += self.access.warm_account(&to);
         let call_frame = CallFrame {
             gas: gas.as_u64(),
             recepient: to,
@@ -541,9 +553,10 @@ impl VirtualMachine {
         self.perform_call(instance, blockchain, call_frame)
     }
     fn revert(&mut self, instance: &mut VMInstance) -> Result<(), VMExecutionError> {
-        let size = instance.pop_stack()?;
+        let len = instance.pop_stack()?;
         let offset = instance.pop_stack()?;
-        instance.return_value = instance.memory.mload8(offset, size);
+        instance.return_value = instance.memory.mload8(offset, len);
+        instance.gas_used += instance.memory.expantion_cost(offset, len);
         instance.reverted = true;
         instance.stopped = true;
         Ok(())
@@ -558,6 +571,7 @@ impl VirtualMachine {
         }
 
         let beneficiary: IonicAddr = instance.pop_stack()?.into();
+        instance.gas_used += self.access.warm_account(&beneficiary);
         let bal = blockchain
             .get_balance(&instance.address)
             .unwrap_or_default();
@@ -675,6 +689,7 @@ impl VirtualMachine {
         }
 
         let sender = instance.address;
+        instance.gas_used += 32000;
 
         if blockchain.get_balance(&sender).unwrap_or_default() < value {
             instance.stack.push(u256::ZERO);
@@ -693,6 +708,7 @@ impl VirtualMachine {
         } else {
             Self::derive_contract_addr(sender, instance.nonce)
         };
+        self.access.pre_warm_account(&new_addr);
 
         if value > 0
             && !blockchain.transfer(&sender, &new_addr, value) {
@@ -945,6 +961,7 @@ impl VMInstance {
         let ost = self.pop_stack()?;
         let destost = self.pop_stack()?;
         let cost = self.memory.expantion_cost(destost, len);
+
         self.memory.mcopy(ost, len, destost);
         self.gas_used += cost;
         Ok(())
@@ -971,6 +988,7 @@ impl VMInstance {
     fn mload(&mut self) -> Result<(), VMExecutionError> {
         let offset = self.pop_stack()?;
         let value = self.memory.mload(offset);
+        self.gas_used += self.memory.expantion_cost(offset, 32.as_u256());
         self.stack.push(value);
         Ok(())
     }
