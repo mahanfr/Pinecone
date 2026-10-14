@@ -15,3 +15,4 @@ pub mod utils;
 pub mod verkletrie;
 pub mod blocktree;
 pub mod vm;
+pub mod consensus;
