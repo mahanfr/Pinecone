@@ -57,7 +57,7 @@ impl Validator {
         let pk = self.bls_public_key()?;
         let sig = BlsSignature::from_bytes(sig_bytes)
             .map_err(|_| ConsensusError::InvalidBlsSignature)?;
-        if sig.verify(true, msg, BLS_DST, &[], &pk, true) == BLST_SUCCESS {
+        if sig.verify(false, msg, BLS_DST, &[], &pk, true) != BLST_SUCCESS {
             return Err(ConsensusError::InvalidBlsSignature);
         }
         return Ok(());
